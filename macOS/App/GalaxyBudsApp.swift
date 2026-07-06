@@ -4,8 +4,10 @@ import SwiftUI
 struct GalaxyBudsApp: App {
     @State private var bluetoothManager = BluetoothManager()
     
-    // Inicialização da Telemetria Nativa
-    private let telemetryManager = TelemetryManager.shared
+    init() {
+        // Inicialização da Telemetria Nativa
+        _ = TelemetryManager.shared
+    }
     
     var body: some Scene {
         MenuBarExtra("Galaxy Buds", systemImage: "earbuds") {
