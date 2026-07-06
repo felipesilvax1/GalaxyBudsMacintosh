@@ -12,10 +12,6 @@ class TelemetryManager: NSObject, MXMetricManagerSubscriber {
         print("MetricKit Telemetry Iniciada. Mantendo logs no ecossistema Apple.")
     }
     
-    deinit {
-        MXMetricManager.shared.remove(self)
-    }
-    
     func didReceive(_ payloads: [MXMetricPayload]) {
         for payload in payloads {
             if let cpuMetrics = payload.cpuMetrics {
