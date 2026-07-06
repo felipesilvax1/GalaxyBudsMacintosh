@@ -4,6 +4,8 @@
 <dict>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>Necessário para se comunicar e controlar seus Galaxy Buds de forma fluida.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>Necessário para se comunicar e controlar seus Galaxy Buds de forma fluida.</string>
     <key>LSUIElement</key>
     <true/>
 </dict>
