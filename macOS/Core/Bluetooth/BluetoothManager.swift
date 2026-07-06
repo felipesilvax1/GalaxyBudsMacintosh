@@ -21,8 +21,13 @@ public class BluetoothManager: NSObject {
     // Fila dedicada para operações de rede Bluetooth, evitando travar a Main Thread
     private let bluetoothQueue = DispatchQueue(label: "com.galaxybuds.bluetooth", qos: .userInitiated)
     
-    // UUID padrão para a Serial Port Profile (SPP)
-    private let sppServiceUUID = IOBluetoothSDPUUID(uuid16: 0x1101)
+    // UUIDs conhecidos dos Galaxy Buds (várias gerações)
+    private let sppUUIDs: [IOBluetoothSDPUUID] = [
+        IOBluetoothSDPUUID(string: "2e73a4ad-332d-41fc-90e2-16bef06523f2"), // SppNew (Buds2, Buds3, BudsFE)
+        IOBluetoothSDPUUID(uuid16: 0x1101), // SppStandard (Buds+, Buds Pro, Buds Live)
+        IOBluetoothSDPUUID(uuid16: 0x1102), // SppLegacy (Buds 1)
+        IOBluetoothSDPUUID(string: "f8620674-a1ed-41ab-a8b9-de9ad655729d") // SmepSpp (Alt mode)
+    ].compactMap { $0 }
     
     private var connectionNotification: IOBluetoothUserNotification?
     
@@ -87,9 +92,32 @@ public class BluetoothManager: NSObject {
     }
     
     private func openRFCOMMChannel(device: IOBluetoothDevice) {
-        // Encontrar o registro de serviço (SDP) para SPP
-        guard let sdpRecord = device.getServiceRecord(for: sppServiceUUID) else {
-            print("Serviço SPP (Serial Port Profile) não encontrado no dispositivo.")
+        var targetRecord: IOBluetoothSDPServiceRecord? = nil
+        
+        // Procurar em todas as UUIDs conhecidas
+        for uuid in sppUUIDs {
+            if let record = device.getServiceRecord(for: uuid) {
+                targetRecord = record
+                print("Serviço SPP encontrado com UUID: \(uuid)")
+                break
+            }
+        }
+        
+        guard let sdpRecord = targetRecord else {
+            print("Nenhum serviço SPP conhecido encontrado no dispositivo.")
+            
+            // Fallback: listar serviços do dispositivo
+            if let services = device.services as? [IOBluetoothSDPServiceRecord] {
+                print("Listando \(services.count) serviços disponíveis no dispositivo:")
+                for service in services {
+                    // Imprimir atributos do serviço para debug
+                    print("Service attributes: \(service.attributes ?? [:])")
+                }
+            } else {
+                print("Os serviços SDP do dispositivo estão vazios ou não puderam ser lidos.")
+                print("Tentando iniciar performSDPQuery()...")
+                // Se desejar, implementar um IOBluetoothDeviceAsyncCallbacks aqui.
+            }
             return
         }
         
