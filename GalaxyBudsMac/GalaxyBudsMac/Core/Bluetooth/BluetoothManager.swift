@@ -106,11 +106,39 @@ public class BluetoothManager: NSObject {
         }
         
         var channelID: BluetoothRFCOMMChannelID = 0
-        if sdpRecord.getRFCOMMChannelID(&channelID) == kIOReturnSuccess {
-            let status = device.openRFCOMMChannelAsync(&rfcommChannel, withChannelID: channelID, delegate: self)
-            if status != kIOReturnSuccess {
-                print("Erro ao tentar abrir o canal RFCOMM async: \(status)")
+        if targetRecord!.getRFCOMMChannelID(&channelID) == kIOReturnSuccess {
+            print("Canal RFCOMM ID: \(channelID)")
+            
+            // 1. Abrir conexão base antes (necessário em algumas versões do macOS)
+            if !device.isConnected() {
+                let connStatus = device.openConnection()
+                if connStatus != kIOReturnSuccess && connStatus != kIOReturnTimeout {
+                    print("Erro ao tentar abrir a conexão base (openConnection): \(connStatus)")
+                }
             }
+            
+            // 2. Usar a versão Sync com Workaround para o bug do macOS
+            var tempChannel: IOBluetoothRFCOMMChannel? = nil
+            let status = device.openRFCOMMChannelSync(&tempChannel, withChannelID: channelID, delegate: self)
+            self.rfcommChannel = tempChannel
+            
+            DispatchQueue.global().async {
+                var waitCount = 0
+                while self.rfcommChannel?.isOpen() == false && waitCount < 15 {
+                    Thread.sleep(forTimeInterval: 0.1)
+                    waitCount += 1
+                }
+                
+                DispatchQueue.main.async {
+                    if self.rfcommChannel?.isOpen() == true {
+                        print("Canal RFCOMM está OPEN após \(waitCount * 100)ms (Status original: \(status))")
+                        self.rfcommChannelOpenComplete(self.rfcommChannel, status: kIOReturnSuccess)
+                    } else {
+                        print("Falha ao abrir o canal RFCOMM async/sync após 1.5s. Status original: \(status)")
+                    }
+                }
+            }
+            
         } else {
             print("Falha ao obter o ID de canal RFCOMM a partir do SDP.")
         }
