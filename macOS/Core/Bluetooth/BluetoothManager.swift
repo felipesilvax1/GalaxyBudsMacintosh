@@ -10,6 +10,7 @@ public class BluetoothManager: NSObject {
     
     // MARK: - Estado Reativo da UI
     public var isConnected: Bool = false
+    public var deviceName: String = "Galaxy Buds"
     public var batteryLevelL: Int = 0
     public var batteryLevelR: Int = 0
     public var batteryLevelCase: Int = 0
@@ -22,12 +23,17 @@ public class BluetoothManager: NSObject {
     private var dataBuffer = Data()
     
     // UUIDs conhecidos dos Galaxy Buds (várias gerações)
-    private let sppUUIDs: [IOBluetoothSDPUUID] = [
-        IOBluetoothSDPUUID(string: "2e73a4ad-332d-41fc-90e2-16bef06523f2"), // SppNew (Buds2, Buds3, BudsFE)
-        IOBluetoothSDPUUID(uuid16: 0x1101), // SppStandard (Buds+, Buds Pro, Buds Live)
-        IOBluetoothSDPUUID(uuid16: 0x1102), // SppLegacy (Buds 1)
-        IOBluetoothSDPUUID(string: "f8620674-a1ed-41ab-a8b9-de9ad655729d") // SmepSpp (Alt mode)
-    ].compactMap { $0 }
+    private var sppUUIDs: [IOBluetoothSDPUUID] {
+        let newBytes: [UInt8] = [0x2E, 0x73, 0xA4, 0xAD, 0x33, 0x2D, 0x41, 0xFC, 0x90, 0xE2, 0x16, 0xBE, 0xF0, 0x65, 0x23, 0xF2]
+        let altBytes: [UInt8] = [0xF8, 0x62, 0x06, 0x74, 0xA1, 0xED, 0x41, 0xAB, 0xA8, 0xB9, 0xDE, 0x9A, 0xD6, 0x55, 0x72, 0x9D]
+        
+        let sppNew = IOBluetoothSDPUUID(bytes: newBytes, length: 16)
+        let sppAlt = IOBluetoothSDPUUID(bytes: altBytes, length: 16)
+        let sppStd = IOBluetoothSDPUUID(uuid16: 0x1101)
+        let sppLeg = IOBluetoothSDPUUID(uuid16: 0x1102)
+        
+        return [sppNew, sppStd, sppLeg, sppAlt].compactMap { $0 }
+    }
     
     private var connectionNotification: IOBluetoothUserNotification?
     
@@ -53,13 +59,10 @@ public class BluetoothManager: NSObject {
     @objc private func deviceConnected(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
         if let name = device.name, name.localizedCaseInsensitiveContains("Buds") {
             print("Galaxy Buds conectado nativamente: \(name). Tentando conectar RFCOMM...")
+            self.deviceName = name
             // Executamos no MainActor para garantir RunLoop
             self.openRFCOMMChannel(device: device)
         }
-    }
-    
-    deinit {
-        connectionNotification?.unregister()
     }
     
     // MARK: - Descoberta e Conexão
@@ -81,6 +84,7 @@ public class BluetoothManager: NSObject {
             return
         }
         
+        self.deviceName = budsDevice.name ?? "Galaxy Buds"
         print("Encontrado: \(budsDevice.nameOrAddress ?? "Unknown"). Iniciando tentativa de conexão...")
         self.openRFCOMMChannel(device: budsDevice)
     }
@@ -139,6 +143,22 @@ public class BluetoothManager: NSObject {
             }
         }
     }
+    
+    // MARK: - Controles de Ruído
+    
+    public func setNoiseControlMode(_ mode: String) {
+        guard isConnected else { return }
+        
+        var modeByte: UInt8 = 0x00
+        switch mode {
+        case "ANC": modeByte = 0x01
+        case "Ambient": modeByte = 0x02
+        default: modeByte = 0x00 // Off
+        }
+        
+        let message = SppMessage(id: .noiseControls, type: .request, payload: Data([modeByte]))
+        self.send(message: message)
+    }
 }
 
 // MARK: - IOBluetoothRFCOMMChannelDelegate
@@ -169,8 +189,8 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
             do {
                 let message = try SppMessage.decode(from: self.dataBuffer)
                 
-                // Se decodificou com sucesso, remover os bytes do pacote do buffer
-                self.dataBuffer.removeFirst(message.size)
+                // Se decodificou com sucesso, remover os bytes exatos do pacote na rede
+                self.dataBuffer.removeFirst(message.totalPacketSize)
                 
                 // Processar a mensagem
                 self.processReceivedMessage(message)
@@ -204,17 +224,21 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
     private func processReceivedMessage(_ message: SppMessage) {
         switch message.id {
             
-        case .statusUpdated, .extendedStatusUpdated:
-            // Dependendo do payload da Samsung, os dados de bateria costumam estar em posições fixas.
-            // Aqui estamos assumindo bytes de exemplo (no protocolo oficial, geralmente L e R e Case).
-            // Se o payload for maior ou igual a 4 bytes, fazemos o parse seguro.
+        case .statusUpdated:
             if message.payload.count >= 4 {
-                self.batteryLevelL = Int(message.payload[1])
-                self.batteryLevelR = Int(message.payload[2])
-                self.batteryLevelCase = Int(message.payload[3])
-                print("Bateria Atualizada: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
-            } else {
-                print("Payload de bateria muito pequeno: \(message.payload.count) bytes")
+                self.batteryLevelL = min(Int(message.payload[1] & 0x7F), 100)
+                self.batteryLevelR = min(Int(message.payload[2] & 0x7F), 100)
+                self.batteryLevelCase = min(Int(message.payload[3] & 0x7F), 100)
+                print("Status Atualizado: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
+            }
+            
+        case .extendedStatusUpdated:
+            if message.payload.count >= 8 {
+                // No ExtendedStatusUpdate (Buds+ ou superior), L é payload[2], R é payload[3], Case é payload[7]
+                self.batteryLevelL = min(Int(message.payload[2] & 0x7F), 100)
+                self.batteryLevelR = min(Int(message.payload[3] & 0x7F), 100)
+                self.batteryLevelCase = min(Int(message.payload[7] & 0x7F), 100)
+                print("Extended Status: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
             }
             
         case .ambientModeUpdated, .noiseControlsUpdate:

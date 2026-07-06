@@ -7,7 +7,7 @@ struct MenuBarView: View {
         VStack(spacing: 16) {
             // MARK: - Header
             HStack {
-                Text("Galaxy Buds")
+                Text(bluetoothManager.deviceName)
                     .font(.headline)
                 Spacer()
                 Button(action: {
@@ -42,27 +42,20 @@ struct MenuBarView: View {
                 HStack {
                     NoiseButton(title: "ANC", icon: "waveform.path", isSelected: bluetoothManager.currentNoiseMode == "ANC") {
                         bluetoothManager.currentNoiseMode = "ANC"
-                        // bluetoothManager.send(...) logic seria invocada aqui
+                        bluetoothManager.setNoiseControlMode("ANC")
                     }
                     NoiseButton(title: "Off", icon: "power", isSelected: bluetoothManager.currentNoiseMode == "Off") {
                         bluetoothManager.currentNoiseMode = "Off"
+                        bluetoothManager.setNoiseControlMode("Off")
                     }
                     NoiseButton(title: "Ambient", icon: "ear", isSelected: bluetoothManager.currentNoiseMode == "Ambient") {
                         bluetoothManager.currentNoiseMode = "Ambient"
+                        bluetoothManager.setNoiseControlMode("Ambient")
                     }
                 }
             }
             
             Divider()
-            
-            // MARK: - Sliders (Volume)
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Volume")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Slider(value: .constant(0.5))
-                    .tint(.blue)
-            }
             
             // MARK: - Sair
             Button("Quit Galaxy Buds") {

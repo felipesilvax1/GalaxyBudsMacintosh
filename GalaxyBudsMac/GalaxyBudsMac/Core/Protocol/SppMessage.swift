@@ -20,6 +20,11 @@ public struct SppMessage {
         return 1 + payload.count + 2
     }
     
+    // O tamanho total do pacote na rede: 1(SOM) + 2(Header) + size + 1(EOM)
+    public var totalPacketSize: Int {
+        return 1 + 2 + size + 1
+    }
+    
     public init(id: MsgIds, type: MsgTypes = .request, payload: Data = Data(), isFragment: Bool = false) {
         self.id = id
         self.type = type
@@ -77,7 +82,10 @@ public struct SppMessage {
     // MARK: - Decode
     
     /// Decodifica um fluxo de dados (Data) numa SppMessage
-    public static func decode(from raw: Data, expectedSom: UInt8 = MsgConstants.som.rawValue, expectedEom: UInt8 = MsgConstants.eom.rawValue) throws -> SppMessage {
+    public static func decode(from rawData: Data, expectedSom: UInt8 = MsgConstants.som.rawValue, expectedEom: UInt8 = MsgConstants.eom.rawValue) throws -> SppMessage {
+        // Reinicia os índices para 0 caso rawData seja um slice (ex: após removeFirst)
+        let raw = Data(rawData)
+        
         guard raw.count >= 6 else {
             throw SppMessageError.tooSmall
         }
@@ -92,7 +100,7 @@ public struct SppMessage {
         offset += 1
         
         // 2. Header
-        let headerValue = raw[offset..<offset+2].withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
+        let headerValue = raw[offset..<offset+2].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self).littleEndian }
         offset += 2
         
         let isFrag = (headerValue & 0x2000) != 0
@@ -109,11 +117,11 @@ public struct SppMessage {
         var payloadSize = expectedSize - 3
         if payloadSize < 0 { payloadSize = 0 }
         
-        let payload = raw[offset..<offset+payloadSize]
+        let payload = Data(raw[offset..<offset+payloadSize])
         offset += payloadSize
         
         // 5. CRC16
-        let packetCrc = raw[offset..<offset+2].withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
+        let packetCrc = raw[offset..<offset+2].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self).littleEndian }
         offset += 2
         
         // Validação do CRC

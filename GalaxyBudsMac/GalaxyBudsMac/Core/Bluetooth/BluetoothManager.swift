@@ -10,6 +10,7 @@ public class BluetoothManager: NSObject {
     
     // MARK: - Estado Reativo da UI
     public var isConnected: Bool = false
+    public var deviceName: String = "Galaxy Buds"
     public var batteryLevelL: Int = 0
     public var batteryLevelR: Int = 0
     public var batteryLevelCase: Int = 0
@@ -18,20 +19,49 @@ public class BluetoothManager: NSObject {
     // MARK: - Estado Interno de Bluetooth
     private var rfcommChannel: IOBluetoothRFCOMMChannel?
     
-    // Fila dedicada para operações de rede Bluetooth, evitando travar a Main Thread
-    private let bluetoothQueue = DispatchQueue(label: "com.galaxybuds.bluetooth", qos: .userInitiated)
+    // Buffer para acumular dados de pacotes fragmentados (RFCOMM é um stream, não garante 1 pacote por evento)
+    private var dataBuffer = Data()
     
-    // UUID padrão para a Serial Port Profile (SPP)
-    private let sppServiceUUID = IOBluetoothSDPUUID(uuid16: 0x1101)
+    // UUIDs conhecidos dos Galaxy Buds (várias gerações)
+    private var sppUUIDs: [IOBluetoothSDPUUID] {
+        let newBytes: [UInt8] = [0x2E, 0x73, 0xA4, 0xAD, 0x33, 0x2D, 0x41, 0xFC, 0x90, 0xE2, 0x16, 0xBE, 0xF0, 0x65, 0x23, 0xF2]
+        let altBytes: [UInt8] = [0xF8, 0x62, 0x06, 0x74, 0xA1, 0xED, 0x41, 0xAB, 0xA8, 0xB9, 0xDE, 0x9A, 0xD6, 0x55, 0x72, 0x9D]
+        
+        let sppNew = IOBluetoothSDPUUID(bytes: newBytes, length: 16)
+        let sppAlt = IOBluetoothSDPUUID(bytes: altBytes, length: 16)
+        let sppStd = IOBluetoothSDPUUID(uuid16: 0x1101)
+        let sppLeg = IOBluetoothSDPUUID(uuid16: 0x1102)
+        
+        return [sppNew, sppStd, sppLeg, sppAlt].compactMap { $0 }
+    }
+    
+    private var connectionNotification: IOBluetoothUserNotification?
     
     public override init() {
         super.init()
         
+        // Registrar para notificações automáticas de conexão quando a case for aberta
+        connectionNotification = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(deviceConnected(_:device:)))
+        
         // Debug para listar dispositivos pareados na inicialização do manager
         if let devices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] {
             for device in devices {
-                print("Dispositivo pareado encontrado: \(device.name ?? "Desconhecido")")
+                if let name = device.name {
+                    print("Dispositivo pareado encontrado: \(name)")
+                } else {
+                    print("No name or address")
+                }
             }
+        }
+    }
+    
+    // MARK: - Auto-detecção (Case Open)
+    @objc private func deviceConnected(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
+        if let name = device.name, name.localizedCaseInsensitiveContains("Buds") {
+            print("Galaxy Buds conectado nativamente: \(name). Tentando conectar RFCOMM...")
+            self.deviceName = name
+            // Executamos no MainActor para garantir RunLoop
+            self.openRFCOMMChannel(device: device)
         }
     }
     
@@ -39,42 +69,45 @@ public class BluetoothManager: NSObject {
     
     /// Busca entre os dispositivos já pareados do macOS algum que corresponda aos Galaxy Buds.
     public func connectToPairedBuds() {
-        bluetoothQueue.async {
-            // Obter todos os dispositivos pareados do sistema (sem gastar bateria fazendo um novo Inquiry)
-            guard let pairedDevices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
-                print("Nenhum dispositivo Bluetooth pareado no Mac.")
-                return
-            }
-            
-            // Filtrar usando "Buds" de forma insensível a maiúsculas/minúsculas (cobre Galaxy Buds, Buds+, Buds Live, Buds Pro, Buds2, Buds2 Pro, Buds3, Buds3 Pro)
-            guard let budsDevice = pairedDevices.first(where: { device in
-                if let name = device.name, name.localizedCaseInsensitiveContains("Buds") {
-                    return true
-                }
-                return false
-            }) else {
-                print("Nenhum Galaxy Buds encontrado nos dispositivos pareados.")
-                return
-            }
-            
-            print("Encontrado: \(budsDevice.nameOrAddress ?? "Unknown"). Iniciando tentativa de conexão...")
-            
-            self.openRFCOMMChannel(device: budsDevice)
+        guard let pairedDevices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
+            print("Nenhum dispositivo Bluetooth pareado no Mac.")
+            return
         }
+        
+        guard let budsDevice = pairedDevices.first(where: { device in
+            if let name = device.name, name.localizedCaseInsensitiveContains("Buds") {
+                return true
+            }
+            return false
+        }) else {
+            print("Nenhum Galaxy Buds encontrado nos dispositivos pareados.")
+            return
+        }
+        
+        self.deviceName = budsDevice.name ?? "Galaxy Buds"
+        print("Encontrado: \(budsDevice.nameOrAddress ?? "Unknown"). Iniciando tentativa de conexão...")
+        self.openRFCOMMChannel(device: budsDevice)
     }
     
     private func openRFCOMMChannel(device: IOBluetoothDevice) {
-        // Encontrar o registro de serviço (SDP) para SPP
-        guard let sdpRecord = device.getServiceRecord(for: sppServiceUUID) else {
-            print("Serviço SPP (Serial Port Profile) não encontrado no dispositivo.")
+        var targetRecord: IOBluetoothSDPServiceRecord? = nil
+        
+        for uuid in sppUUIDs {
+            if let record = device.getServiceRecord(for: uuid) {
+                targetRecord = record
+                print("Serviço SPP encontrado com UUID: \(uuid)")
+                break
+            }
+        }
+        
+        guard let sdpRecord = targetRecord else {
+            print("Nenhum serviço SPP conhecido encontrado no dispositivo.")
             return
         }
         
         var channelID: BluetoothRFCOMMChannelID = 0
         if sdpRecord.getRFCOMMChannelID(&channelID) == kIOReturnSuccess {
-            // Abrir canal serial assincronamente com Delegate na nossa classe
             let status = device.openRFCOMMChannelAsync(&rfcommChannel, withChannelID: channelID, delegate: self)
-            
             if status != kIOReturnSuccess {
                 print("Erro ao tentar abrir o canal RFCOMM async: \(status)")
             }
@@ -84,37 +117,47 @@ public class BluetoothManager: NSObject {
     }
     
     public func disconnect() {
-        bluetoothQueue.async {
-            self.rfcommChannel?.close()
-            self.rfcommChannel = nil
-            
-            Task { @MainActor in
-                self.isConnected = false
-                print("Desconectado.")
-            }
-        }
+        print("Fechando conexão RFCOMM...")
+        self.rfcommChannel?.close()
+        self.rfcommChannel = nil
+        self.isConnected = false
+        self.dataBuffer.removeAll()
+        print("Desconectado.")
     }
     
     // MARK: - Transmissão de Dados
     
-    /// Codifica e envia um pacote SppMessage pela rede serial
     public func send(message: SppMessage) {
-        bluetoothQueue.async { [weak self] in
-            guard let channel = self?.rfcommChannel, channel.isOpen() else {
-                print("Canal não está aberto, impossível enviar mensagem.")
-                return
-            }
-            
-            let data = message.encode()
-            data.withUnsafeBytes { buffer in
-                if let baseAddress = buffer.baseAddress {
-                    let status = channel.writeAsync(UnsafeMutableRawPointer(mutating: baseAddress), length: UInt16(data.count), refcon: nil)
-                    if status != kIOReturnSuccess {
-                        print("Erro ao enviar dados no canal RFCOMM.")
-                    }
+        guard let channel = self.rfcommChannel, channel.isOpen() else {
+            print("Canal não está aberto, impossível enviar mensagem.")
+            return
+        }
+        
+        let data = message.encode()
+        data.withUnsafeBytes { buffer in
+            if let baseAddress = buffer.baseAddress {
+                let status = channel.writeAsync(UnsafeMutableRawPointer(mutating: baseAddress), length: UInt16(data.count), refcon: nil)
+                if status != kIOReturnSuccess {
+                    print("Erro ao enviar dados no canal RFCOMM.")
                 }
             }
         }
+    }
+    
+    // MARK: - Controles de Ruído
+    
+    public func setNoiseControlMode(_ mode: String) {
+        guard isConnected else { return }
+        
+        var modeByte: UInt8 = 0x00
+        switch mode {
+        case "ANC": modeByte = 0x01
+        case "Ambient": modeByte = 0x02
+        default: modeByte = 0x00 // Off
+        }
+        
+        let message = SppMessage(id: .noiseControls, type: .request, payload: Data([modeByte]))
+        self.send(message: message)
     }
 }
 
@@ -124,10 +167,8 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
     public func rfcommChannelOpenComplete(_ rfcommChannel: IOBluetoothRFCOMMChannel!, status error: IOReturn) {
         if error == kIOReturnSuccess {
             print("Conexão RFCOMM aberta com sucesso!")
-            
-            Task { @MainActor in
-                self.isConnected = true
-            }
+            self.isConnected = true
+            self.dataBuffer.removeAll() // Resetar buffer ao conectar
             
             // Ao conectar, enviamos o handshake do MVP (Manager Info) para acordar o dispositivo e pedir status
             let handshakeMsg = SppMessage(id: .managerInfo, type: .request, payload: Data())
@@ -135,68 +176,85 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
             
         } else {
             print("Falha ao completar a abertura do canal RFCOMM. Erro: \(error)")
-            Task { @MainActor in
-                self.isConnected = false
-            }
+            self.isConnected = false
         }
     }
     
     public func rfcommChannelData(_ rfcommChannel: IOBluetoothRFCOMMChannel!, data dataPointer: UnsafeMutableRawPointer!, length dataLength: Int) {
         let incomingData = Data(bytes: dataPointer, count: dataLength)
+        self.dataBuffer.append(incomingData)
         
-        // Passar a decodificação pesada para background
-        bluetoothQueue.async {
+        // Tentar decodificar enquanto houver pacotes completos no buffer
+        while true {
             do {
-                let message = try SppMessage.decode(from: incomingData)
+                let message = try SppMessage.decode(from: self.dataBuffer)
+                
+                // Se decodificou com sucesso, remover os bytes exatos do pacote na rede
+                self.dataBuffer.removeFirst(message.totalPacketSize)
+                
+                // Processar a mensagem
                 self.processReceivedMessage(message)
+                
+            } catch SppMessageError.tooSmall {
+                // Buffer não tem dados suficientes ainda, esperar próximo pacote
+                break
+            } catch SppMessageError.invalidSom {
+                print("Aviso: SOM inválido. Descartando 1 byte para tentar resincronizar...")
+                if !self.dataBuffer.isEmpty {
+                    self.dataBuffer.removeFirst()
+                }
             } catch {
-                // Em um ambiente de produção real, é necessário acumular os buffers caso o pacote chegue fragmentado.
-                // Mas para o MVP, assumimos pacotes curtos inteiros.
-                print("Aviso: Falha ao decodificar a mensagem recebida: \(error)")
+                // Outro erro de validação (CRC, tamanho, etc). Descartamos o primeiro byte e tentamos resincronizar.
+                print("Aviso: Falha de validação (\(error)). Descartando 1 byte.")
+                if !self.dataBuffer.isEmpty {
+                    self.dataBuffer.removeFirst()
+                }
             }
         }
     }
     
     public func rfcommChannelClosed(_ rfcommChannel: IOBluetoothRFCOMMChannel!) {
         print("O canal RFCOMM foi fechado pelo dispositivo remoto ou pelo sistema.")
-        Task { @MainActor in
-            self.isConnected = false
-        }
+        self.isConnected = false
+        self.dataBuffer.removeAll()
     }
     
     // MARK: - Processamento de Mensagens
     
-    /// Atualiza os estados do @Observable a partir de um pacote recebido.
     private func processReceivedMessage(_ message: SppMessage) {
-        // Garantir que a UI atualize na Main Actor
-        Task { @MainActor in
-            switch message.id {
-                
-            case .statusUpdated, .extendedStatusUpdated:
-                // No protocolo real da Samsung, a bateria geralmente está localizada em índices fixos do payload (ex: bytes 1, 2, 3)
-                // Para o MVP, definimos um esqueleto defensivo para evitar crashes:
-                if message.payload.count >= 4 {
-                    self.batteryLevelL = Int(message.payload[1])
-                    self.batteryLevelR = Int(message.payload[2])
-                    self.batteryLevelCase = Int(message.payload[3])
-                }
-                
-            case .ambientModeUpdated, .noiseControlsUpdate:
-                // Exemplo simplificado, o byte de controle diz se é ANC, Ambient ou Off
-                if let modeByte = message.payload.first {
-                    switch modeByte {
-                    case 0x00: self.currentNoiseMode = "Off"
-                    case 0x01: self.currentNoiseMode = "ANC"
-                    case 0x02: self.currentNoiseMode = "Ambient"
-                    default: self.currentNoiseMode = "Unknown"
-                    }
-                }
-                
-            default:
-                // Ignora logs muito ruidosos, mas pode ser ativado para debug
-                // print("Mensagem recebida mas não mapeada no MVP: \(message.id)")
-                break
+        switch message.id {
+            
+        case .statusUpdated:
+            if message.payload.count >= 4 {
+                self.batteryLevelL = min(Int(message.payload[1] & 0x7F), 100)
+                self.batteryLevelR = min(Int(message.payload[2] & 0x7F), 100)
+                self.batteryLevelCase = min(Int(message.payload[3] & 0x7F), 100)
+                print("Status Atualizado: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
             }
+            
+        case .extendedStatusUpdated:
+            if message.payload.count >= 8 {
+                // No ExtendedStatusUpdate (Buds+ ou superior), L é payload[2], R é payload[3], Case é payload[7]
+                self.batteryLevelL = min(Int(message.payload[2] & 0x7F), 100)
+                self.batteryLevelR = min(Int(message.payload[3] & 0x7F), 100)
+                self.batteryLevelCase = min(Int(message.payload[7] & 0x7F), 100)
+                print("Extended Status: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
+            }
+            
+        case .ambientModeUpdated, .noiseControlsUpdate:
+            if let modeByte = message.payload.first {
+                switch modeByte {
+                case 0x00: self.currentNoiseMode = "Off"
+                case 0x01: self.currentNoiseMode = "ANC"
+                case 0x02: self.currentNoiseMode = "Ambient"
+                default: self.currentNoiseMode = "Unknown"
+                }
+                print("Noise mode atualizado para: \(self.currentNoiseMode)")
+            }
+            
+        default:
+            // break
+            print("Mensagem recebida: \(message.id)")
         }
     }
 }
