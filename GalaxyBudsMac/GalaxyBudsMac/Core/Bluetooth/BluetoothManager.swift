@@ -100,7 +100,7 @@ public class BluetoothManager: NSObject {
             }
         }
         
-        guard let sdpRecord = targetRecord else {
+        if targetRecord == nil {
             print("Nenhum serviço SPP conhecido encontrado no dispositivo.")
             return
         }
@@ -122,19 +122,21 @@ public class BluetoothManager: NSObject {
             let status = device.openRFCOMMChannelSync(&tempChannel, withChannelID: channelID, delegate: self)
             self.rfcommChannel = tempChannel
             
+            // Usar tempChannel no closure background para evitar erro de concorrência do Swift 6
             DispatchQueue.global().async {
                 var waitCount = 0
-                while self.rfcommChannel?.isOpen() == false && waitCount < 15 {
+                while tempChannel?.isOpen() == false && waitCount < 15 {
                     Thread.sleep(forTimeInterval: 0.1)
                     waitCount += 1
                 }
                 
                 DispatchQueue.main.async {
-                    if self.rfcommChannel?.isOpen() == true {
+                    if tempChannel?.isOpen() == true {
                         print("Canal RFCOMM está OPEN após \(waitCount * 100)ms (Status original: \(status))")
-                        self.rfcommChannelOpenComplete(self.rfcommChannel, status: kIOReturnSuccess)
+                        self.rfcommChannelOpenComplete(tempChannel, status: kIOReturnSuccess)
                     } else {
                         print("Falha ao abrir o canal RFCOMM async/sync após 1.5s. Status original: \(status)")
+                        self.isConnected = false
                     }
                 }
             }
