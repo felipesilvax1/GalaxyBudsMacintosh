@@ -92,7 +92,7 @@ public struct SppMessage {
         offset += 1
         
         // 2. Header
-        let headerValue = raw[offset..<offset+2].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self).littleEndian }
+        let headerValue = raw[offset..<offset+2].withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
         offset += 2
         
         let isFrag = (headerValue & 0x2000) != 0
@@ -109,11 +109,11 @@ public struct SppMessage {
         var payloadSize = expectedSize - 3
         if payloadSize < 0 { payloadSize = 0 }
         
-        let payload = Data(raw[offset..<offset+payloadSize])
+        let payload = raw[offset..<offset+payloadSize]
         offset += payloadSize
         
         // 5. CRC16
-        let packetCrc = raw[offset..<offset+2].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self).littleEndian }
+        let packetCrc = raw[offset..<offset+2].withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
         offset += 2
         
         // Validação do CRC
