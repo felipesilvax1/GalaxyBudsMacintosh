@@ -45,4 +45,8 @@ public enum MsgIds: UInt8 {
     // MARK: - Equalizador Básico
     /// Mudar o preset do equalizador
     case equalizer = 134
+    
+    // MARK: - Outros
+    /// Fallback para mensagens não mapeadas (sensores, debug, etc)
+    case unknown = 255
 }

@@ -109,7 +109,6 @@ public struct SppMessage {
         
         // 3. Message ID
         let rawId = raw[offset]
-        let msgId = MsgIds(rawValue: rawId) ?? .statusUpdated // Fallback para manter simples no MVP
         offset += 1
         
         // 4. Payload
@@ -140,6 +139,7 @@ public struct SppMessage {
             throw SppMessageError.invalidEom
         }
         
+        let msgId = MsgIds(rawValue: rawId) ?? .unknown
         var message = SppMessage(id: msgId, type: msgType, payload: payload, isFragment: isFrag)
         message.crc16 = packetCrc
         return message
