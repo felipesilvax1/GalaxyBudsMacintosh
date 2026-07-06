@@ -2,15 +2,20 @@ import Foundation
 @preconcurrency import IOBluetooth
 import Observation
 
-/// Flag thread-safe para sincronizar a SDP query entre threads.
-/// Isolada fora do @MainActor para evitar conflitos de isolamento do Swift 6.
-final class SDPFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _done: Bool = false
+/// Semáforo thread-safe para garantir uma única conexão por vez.
+/// Replica o ConnSemaphore do C# original (SemaphoreSlim(1, 1)).
+/// Isolado fora do @MainActor para evitar conflitos de isolamento do Swift 6.
+final class ConnectionSemaphore: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 1)
     
-    var done: Bool {
-        get { lock.lock(); defer { lock.unlock() }; return _done }
-        set { lock.lock(); _done = newValue; lock.unlock() }
+    /// Tenta adquirir o semáforo. Retorna true se conseguiu.
+    func tryAcquire() -> Bool {
+        return semaphore.wait(timeout: .now()) == .success
+    }
+    
+    /// Libera o semáforo.
+    func release() {
+        semaphore.signal()
     }
 }
 /// Gerenciador Bluetooth responsável por lidar com o pareamento, conexão RFCOMM e comunicação com os Galaxy Buds.
@@ -56,9 +61,8 @@ public class BluetoothManager: NSObject {
         return [sppNew, sppStd, sppLeg, sppAlt].compactMap { $0 }
     }
     
-    // Flag thread-safe para SDP query (acessada de background thread + IOBluetooth thread)
-    // Usa classe auxiliar nonisolated para evitar conflito com @MainActor
-    private nonisolated(unsafe) let _sdpFlag = SDPFlag()
+    // Semáforo de conexão — garante apenas UMA tentativa por vez (como o C# original)
+    private nonisolated(unsafe) let _connSemaphore = ConnectionSemaphore()
     
     private var connectionNotification: IOBluetoothUserNotification?
     
@@ -82,8 +86,11 @@ public class BluetoothManager: NSObject {
     
     // MARK: - Auto-detecção (Case Open)
     @objc private func deviceConnected(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
+        // Guard: ignorar se já conectado ou já tentando conectar
+        guard !self.isConnected else { return }
+        
         if let name = device.name, name.localizedCaseInsensitiveContains("Buds") {
-            print("Galaxy Buds conectado nativamente: \(name). Tentando conectar RFCOMM...")
+            print("Galaxy Buds detectado: \(name). Tentando conectar RFCOMM...")
             self.deviceName = name
             self.startConnectionOnBackgroundThread(device: device)
         }
@@ -93,6 +100,11 @@ public class BluetoothManager: NSObject {
     
     /// Busca entre os dispositivos já pareados do macOS algum que corresponda aos Galaxy Buds.
     public func connectToPairedBuds() {
+        guard !self.isConnected else {
+            print("Já conectado, ignorando.")
+            return
+        }
+        
         guard let pairedDevices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
             print("Nenhum dispositivo Bluetooth pareado no Mac.")
             return
@@ -116,7 +128,7 @@ public class BluetoothManager: NSObject {
     /// Inicia a conexão Bluetooth em uma thread de background.
     /// CRUCIAL: As APIs bloqueantes do IOBluetooth precisam que o RunLoop da MainThread esteja LIVRE.
     private func startConnectionOnBackgroundThread(device: IOBluetoothDevice) {
-        let uuids = self.sppUUIDs
+        nonisolated(unsafe) let uuids = self.sppUUIDs
         
         DispatchQueue.global(qos: .userInitiated).async {
             self.performConnectionSync(device: device, uuids: uuids)
@@ -127,8 +139,14 @@ public class BluetoothManager: NSObject {
     /// Replica exatamente o fluxo do Bluetooth.mm original do GalaxyBudsClient.
     nonisolated private func performConnectionSync(device: IOBluetoothDevice, uuids: [IOBluetoothSDPUUID]) {
         
+        // === SEMÁFORO: Garantir UMA tentativa por vez (como ConnSemaphore do C#) ===
+        guard _connSemaphore.tryAcquire() else {
+            print("Conexão já em andamento, ignorando tentativa duplicada.")
+            return
+        }
+        defer { _connSemaphore.release() }
+        
         // === PASSO 1: Abrir conexão base ===
-        // Bluetooth.mm linha 41: "Before we can open the RFCOMM channel, we need to open a connection"
         if !device.isConnected() {
             let status = device.openConnection()
             if status == kIOReturnTimeout {
@@ -141,26 +159,16 @@ public class BluetoothManager: NSObject {
         }
         print("Conexão base OK. Iniciando SDP query...")
         
-        // === PASSO 2: SDP Query com polling ===
-        // Bluetooth.mm linha 57-72: performSDPQuery com delegate e polling
-        // NOTA: Usa performSDPQuery SEM filtro de UUID (filtro silenciosamente falha desde macOS Ventura)
-        // Ref: https://developer.apple.com/forums/thread/722228
-        self._sdpFlag.done = false
-        
-        let sdpStatus = device.performSDPQuery(self) // self conforma com IOBluetoothDeviceAsyncCallbacks
+        // === PASSO 2: SDP Query ===
+        // macOS imprime "This currently won't trigger SDP delegate" para objetos Swift,
+        // então não dependemos do callback. Apenas disparamos a query para forçar o sistema
+        // a atualizar os registros SDP em cache, e esperamos 1.5s.
+        let sdpStatus = device.performSDPQuery(nil)
         if sdpStatus != kIOReturnSuccess {
-            print("Erro ao iniciar SDP query: \(sdpStatus). Tentando continuar sem SDP...")
-        } else {
-            // Poll até SDP completar (max 1.5s), exatamente como o original
-            var i = 0
-            while !self._sdpFlag.done && i < 15 {
-                Thread.sleep(forTimeInterval: 0.1)
-                i += 1
-            }
-            if !self._sdpFlag.done {
-                print("Aviso: SDP query expirou (timeout 1.5s). Continuando com cache...")
-            }
+            print("Aviso: SDP query retornou erro \(sdpStatus). Tentando com cache...")
         }
+        // Esperar para o sistema processar a query (como o original Obj-C faz)
+        Thread.sleep(forTimeInterval: 1.5)
         
         // === PASSO 3: Buscar serviço SPP ===
         // Bluetooth.mm linha 74: [device getServiceRecordForUUID:parsedUuid]
@@ -297,13 +305,14 @@ public class BluetoothManager: NSObject {
 extension BluetoothManager: IOBluetoothDeviceAsyncCallbacks {
     
     /// Chamado pelo IOBluetooth quando a SDP query completa (na thread interna do IOBluetooth).
+    /// NOTA: macOS imprime "This currently won't trigger SDP delegate" para objetos Swift,
+    /// então este callback pode nunca ser chamado. Mantido para compatibilidade futura.
     nonisolated public func sdpQueryComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
         if status != kIOReturnSuccess {
-            print("Aviso: SDP query completou com erro: \(status)")
+            print("SDP query callback (pode não disparar no macOS atual): erro \(status)")
         } else {
-            print("SDP query completou com sucesso!")
+            print("SDP query callback: sucesso!")
         }
-        self._sdpFlag.done = true
     }
     
     /// Chamado quando uma conexão base completa. Stub obrigatório do protocolo.
