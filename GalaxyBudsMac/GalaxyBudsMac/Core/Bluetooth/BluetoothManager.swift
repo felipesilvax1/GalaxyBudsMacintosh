@@ -2,8 +2,28 @@ import Foundation
 @preconcurrency import IOBluetooth
 import Observation
 
+/// Flag thread-safe para sincronizar a SDP query entre threads.
+/// Isolada fora do @MainActor para evitar conflitos de isolamento do Swift 6.
+final class SDPFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _done: Bool = false
+    
+    var done: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _done }
+        set { lock.lock(); _done = newValue; lock.unlock() }
+    }
+}
 /// Gerenciador Bluetooth responsável por lidar com o pareamento, conexão RFCOMM e comunicação com os Galaxy Buds.
 /// Utiliza @Observable para garantir reatividade direta com views SwiftUI no macOS 14+.
+///
+/// ARQUITETURA DE THREADING (replica o original Bluetooth.mm):
+/// - As propriedades reativas (@Observable) vivem na MainActor para o SwiftUI.
+/// - Toda a sequência de conexão RFCOMM roda numa thread de background via DispatchQueue.global().
+///   Isso é OBRIGATÓRIO porque as APIs do IOBluetooth (openConnection, openRFCOMMChannelSync)
+///   bloqueiam a thread atual, e o IOBluetooth precisa do RunLoop da MainThread livre para processar eventos.
+/// - Os callbacks de delegate (rfcommChannelData, rfcommChannelClosed, sdpQueryComplete)
+///   são chamados pelo IOBluetooth na thread interna dele, então são marcados `nonisolated`
+///   e fazem dispatch manual para MainActor quando precisam atualizar estado da UI.
 @MainActor
 @Observable
 public class BluetoothManager: NSObject {
@@ -14,15 +34,16 @@ public class BluetoothManager: NSObject {
     public var batteryLevelL: Int = 0
     public var batteryLevelR: Int = 0
     public var batteryLevelCase: Int = 0
-    public var currentNoiseMode: String = "Off" // Pode virar um Enum no futuro
+    public var currentNoiseMode: String = "Off"
     
     // MARK: - Estado Interno de Bluetooth
     private var rfcommChannel: IOBluetoothRFCOMMChannel?
     
-    // Buffer para acumular dados de pacotes fragmentados (RFCOMM é um stream, não garante 1 pacote por evento)
+    // Buffer para acumular dados de pacotes fragmentados
     private var dataBuffer = Data()
     
     // UUIDs conhecidos dos Galaxy Buds (várias gerações)
+    // Estes bytes são big-endian (network order), idênticos ao que o C# produz após FixEndiannessOfGuidBytes
     private var sppUUIDs: [IOBluetoothSDPUUID] {
         let newBytes: [UInt8] = [0x2E, 0x73, 0xA4, 0xAD, 0x33, 0x2D, 0x41, 0xFC, 0x90, 0xE2, 0x16, 0xBE, 0xF0, 0x65, 0x23, 0xF2]
         let altBytes: [UInt8] = [0xF8, 0x62, 0x06, 0x74, 0xA1, 0xED, 0x41, 0xAB, 0xA8, 0xB9, 0xDE, 0x9A, 0xD6, 0x55, 0x72, 0x9D]
@@ -35,8 +56,9 @@ public class BluetoothManager: NSObject {
         return [sppNew, sppStd, sppLeg, sppAlt].compactMap { $0 }
     }
     
-    // Flag para SDP query (exatamente como o original Obj-C)
-    private var sdpQueryDone: Bool = false
+    // Flag thread-safe para SDP query (acessada de background thread + IOBluetooth thread)
+    // Usa classe auxiliar nonisolated para evitar conflito com @MainActor
+    private nonisolated(unsafe) let _sdpFlag = SDPFlag()
     
     private var connectionNotification: IOBluetoothUserNotification?
     
@@ -46,7 +68,7 @@ public class BluetoothManager: NSObject {
         // Registrar para notificações automáticas de conexão quando a case for aberta
         connectionNotification = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(deviceConnected(_:device:)))
         
-        // Debug para listar dispositivos pareados na inicialização do manager
+        // Debug para listar dispositivos pareados
         if let devices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] {
             for device in devices {
                 if let name = device.name {
@@ -92,15 +114,12 @@ public class BluetoothManager: NSObject {
     }
     
     /// Inicia a conexão Bluetooth em uma thread de background.
-    /// CRUCIAL: As APIs bloqueantes do IOBluetooth (openConnection, performSDPQuery, openRFCOMMChannelSync)
-    /// precisam que o RunLoop da MainThread esteja LIVRE para processar os eventos.
-    /// Se chamadas na MainThread diretamente, causam deadlock silencioso.
+    /// CRUCIAL: As APIs bloqueantes do IOBluetooth precisam que o RunLoop da MainThread esteja LIVRE.
     private func startConnectionOnBackgroundThread(device: IOBluetoothDevice) {
-        // Capturar os UUIDs antes de ir para background (computed property @MainActor)
         let uuids = self.sppUUIDs
         
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.performConnectionSync(device: device, uuids: uuids)
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.performConnectionSync(device: device, uuids: uuids)
         }
     }
     
@@ -109,7 +128,7 @@ public class BluetoothManager: NSObject {
     nonisolated private func performConnectionSync(device: IOBluetoothDevice, uuids: [IOBluetoothSDPUUID]) {
         
         // === PASSO 1: Abrir conexão base ===
-        // "Before we can open the RFCOMM channel, we need to open a connection to the device."
+        // Bluetooth.mm linha 41: "Before we can open the RFCOMM channel, we need to open a connection"
         if !device.isConnected() {
             let status = device.openConnection()
             if status == kIOReturnTimeout {
@@ -117,41 +136,34 @@ public class BluetoothManager: NSObject {
                 return
             }
             if status != kIOReturnSuccess {
-                print("Erro ao abrir conexão base: \(status)")
-                // Não falhar fatalmente, tentar continuar
+                print("Erro ao abrir conexão base: \(status). Tentando continuar...")
             }
         }
+        print("Conexão base OK. Iniciando SDP query...")
         
-        // === PASSO 2: SDP Query com polling (como o original Obj-C) ===
-        // "sdp query with uuids specified silently fails since Ventura"
-        DispatchQueue.main.sync {
-            MainActor.assumeIsolated {
-                self.sdpQueryDone = false
-            }
-        }
+        // === PASSO 2: SDP Query com polling ===
+        // Bluetooth.mm linha 57-72: performSDPQuery com delegate e polling
+        // NOTA: Usa performSDPQuery SEM filtro de UUID (filtro silenciosamente falha desde macOS Ventura)
+        // Ref: https://developer.apple.com/forums/thread/722228
+        self._sdpFlag.done = false
         
-        let sdpStatus = device.performSDPQuery(self)
+        let sdpStatus = device.performSDPQuery(self) // self conforma com IOBluetoothDeviceAsyncCallbacks
         if sdpStatus != kIOReturnSuccess {
             print("Erro ao iniciar SDP query: \(sdpStatus). Tentando continuar sem SDP...")
         } else {
-            // Poll até SDP completar, exatamente como o original
+            // Poll até SDP completar (max 1.5s), exatamente como o original
             var i = 0
-            var done = false
-            while !done && i < 15 {
+            while !self._sdpFlag.done && i < 15 {
                 Thread.sleep(forTimeInterval: 0.1)
                 i += 1
-                DispatchQueue.main.sync {
-                    MainActor.assumeIsolated {
-                        done = self.sdpQueryDone
-                    }
-                }
             }
-            if !done {
-                print("Aviso: SDP query expirou (timeout).")
+            if !self._sdpFlag.done {
+                print("Aviso: SDP query expirou (timeout 1.5s). Continuando com cache...")
             }
         }
         
         // === PASSO 3: Buscar serviço SPP ===
+        // Bluetooth.mm linha 74: [device getServiceRecordForUUID:parsedUuid]
         var targetRecord: IOBluetoothSDPServiceRecord? = nil
         for uuid in uuids {
             if let record = device.getServiceRecord(for: uuid) {
@@ -162,11 +174,11 @@ public class BluetoothManager: NSObject {
         }
         
         guard let serviceRecord = targetRecord else {
-            print("Nenhum serviço SPP encontrado no dispositivo. ***Isso não deveria acontecer.***")
+            print("Nenhum serviço SPP encontrado no dispositivo.")
             return
         }
         
-        // === PASSO 4: Obter canal RFCOMM ID ===
+        // === PASSO 4: Obter RFCOMM Channel ID ===
         var channelID: BluetoothRFCOMMChannelID = 0
         let cidStatus = serviceRecord.getRFCOMMChannelID(&channelID)
         if cidStatus != kIOReturnSuccess {
@@ -177,8 +189,9 @@ public class BluetoothManager: NSObject {
         print("Serviço selecionado - Canal RFCOMM ID = \(channelID)")
         
         // === PASSO 5: Abrir canal RFCOMM Sync ===
-        // "As it appears to be a macOS bug, we work it around by using openRFCOMMChannelSync
-        // then relying on RFCOMM channel to open after at most 1.5s"
+        // Bluetooth.mm linha 93-126: openRFCOMMChannelSync + polling
+        // NOTA: O status SEMPRE retorna kIOReturnError (bug do macOS). Ignoramos o status
+        // e verificamos apenas se o canal abre via isOpen().
         var tempChannel: IOBluetoothRFCOMMChannel? = nil
         let rfcommStatus = device.openRFCOMMChannelSync(&tempChannel, withChannelID: channelID, delegate: self)
         
@@ -187,7 +200,7 @@ public class BluetoothManager: NSObject {
             return
         }
         
-        // Poll até o canal abrir (máx 1.5s), como o original
+        // Poll até o canal abrir (max 1.5s)
         var waitCount = 0
         while !tempChannel!.isOpen() && waitCount < 15 {
             Thread.sleep(forTimeInterval: 0.1)
@@ -195,11 +208,10 @@ public class BluetoothManager: NSObject {
         }
         
         // Verificar resultado - ignorar status de erro se o canal está aberto
-        // "For unknown reasons, status is always kIOReturnError even if connection was successful"
         if !tempChannel!.isOpen() {
             print("Erro: canal RFCOMM não abriu após 1.5s. Status original: \(rfcommStatus)")
             DispatchQueue.main.async {
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     self.isConnected = false
                 }
             }
@@ -212,31 +224,30 @@ public class BluetoothManager: NSObject {
         
         print("Canal RFCOMM aberto com sucesso após \(waitCount * 100)ms!")
         
-        // Atualizar estado na MainThread
+        // Atualizar estado na MainActor e enviar handshake
+        let channel = tempChannel!
         DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                self.rfcommChannel = tempChannel
-                self.rfcommChannelOpenComplete(tempChannel, status: kIOReturnSuccess)
+            Task { @MainActor in
+                self.rfcommChannel = channel
+                self.isConnected = true
+                self.dataBuffer.removeAll()
+                
+                print("Conexão RFCOMM estabelecida! Enviando handshake...")
+                
+                // Handshake: Manager Info (idêntico ao original C#)
+                // Payload: [1 (Magic), 1 (ClientType Samsung), 34 (Android SDK)]
+                let handshakeMsg = SppMessage(id: .managerInfo, type: .request, payload: Data([1, 1, 34]))
+                self.send(message: handshakeMsg)
             }
         }
     }
     
-    // MARK: - SDP Query Delegate Callback
-    @objc nonisolated public func sdpQueryComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
-        if status != kIOReturnSuccess {
-            print("Erro na SDP query: \(status)")
-        } else {
-            print("SDP query completou com sucesso!")
-        }
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                self.sdpQueryDone = true
-            }
-        }
-    }
+    // MARK: - Disconnect
     
     public func disconnect() {
         print("Fechando conexão RFCOMM...")
+        // Limpar delegate antes de fechar (como o original Obj-C faz)
+        self.rfcommChannel?.setDelegate(nil)
         self.rfcommChannel?.close()
         self.rfcommChannel = nil
         self.isConnected = false
@@ -257,7 +268,7 @@ public class BluetoothManager: NSObject {
             if let baseAddress = buffer.baseAddress {
                 let status = channel.writeAsync(UnsafeMutableRawPointer(mutating: baseAddress), length: UInt16(data.count), refcon: nil)
                 if status != kIOReturnSuccess {
-                    print("Erro ao enviar dados no canal RFCOMM.")
+                    print("Erro ao enviar dados no canal RFCOMM: \(status)")
                 }
             }
         }
@@ -280,51 +291,86 @@ public class BluetoothManager: NSObject {
     }
 }
 
+// MARK: - IOBluetoothDeviceAsyncCallbacks (SDP Query Delegate)
+// O original Obj-C (Bluetooth.h:52) conforma com este protocolo para receber callbacks de SDP.
+// SEM esta conformidade, performSDPQuery(self) não funciona — o IOBluetooth não despacha o callback.
+extension BluetoothManager: IOBluetoothDeviceAsyncCallbacks {
+    
+    /// Chamado pelo IOBluetooth quando a SDP query completa (na thread interna do IOBluetooth).
+    nonisolated public func sdpQueryComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
+        if status != kIOReturnSuccess {
+            print("Aviso: SDP query completou com erro: \(status)")
+        } else {
+            print("SDP query completou com sucesso!")
+        }
+        self._sdpFlag.done = true
+    }
+    
+    /// Chamado quando uma conexão base completa. Stub obrigatório do protocolo.
+    nonisolated public func connectionComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
+        print("connectionComplete callback: status = \(status)")
+    }
+    
+    /// Chamado quando uma consulta de nome remoto completa. Stub obrigatório do protocolo.
+    nonisolated public func remoteNameRequestComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
+        print("remoteNameRequestComplete callback: status = \(status)")
+    }
+}
+
 // MARK: - IOBluetoothRFCOMMChannelDelegate
+// Todos os métodos são `nonisolated` porque o IOBluetooth os chama na thread interna dele,
+// NÃO na MainThread. Acessos ao estado da UI são despachados via Task { @MainActor }.
 extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
     
-    public func rfcommChannelOpenComplete(_ rfcommChannel: IOBluetoothRFCOMMChannel!, status error: IOReturn) {
-        if error == kIOReturnSuccess {
-            print("Conexão RFCOMM aberta com sucesso!")
-            self.isConnected = true
-            self.dataBuffer.removeAll() // Resetar buffer ao conectar
-            
-            // Ao conectar, enviamos o handshake do MVP (Manager Info) para acordar o dispositivo e pedir status.
-            // Payload: 1 (Magic), 1 (Tipo Samsung), 34 (Android SDK version simulada)
-            let handshakeMsg = SppMessage(id: .managerInfo, type: .request, payload: Data([1, 1, 34]))
-            self.send(message: handshakeMsg)
-            
-        } else {
-            print("Falha ao completar a abertura do canal RFCOMM. Erro: \(error)")
-            self.isConnected = false
+    /// Chamado pelo IOBluetooth quando o canal RFCOMM abre (pode ser chamado em background).
+    /// No nosso fluxo, NÃO dependemos deste callback — usamos polling de isOpen() como o original.
+    /// Este método é mantido como safety net.
+    nonisolated public func rfcommChannelOpenComplete(_ rfcommChannel: IOBluetoothRFCOMMChannel!, status error: IOReturn) {
+        print("rfcommChannelOpenComplete callback: status = \(error)")
+    }
+    
+    /// Chamado pelo IOBluetooth quando dados chegam no canal (na thread interna do IOBluetooth).
+    nonisolated public func rfcommChannelData(_ rfcommChannel: IOBluetoothRFCOMMChannel!, data dataPointer: UnsafeMutableRawPointer!, length dataLength: Int) {
+        // Copiar os dados imediatamente (o ponteiro pode ser invalidado após este callback)
+        let incomingData = Data(bytes: dataPointer, count: dataLength)
+        
+        DispatchQueue.main.async {
+            Task { @MainActor in
+                self.dataBuffer.append(incomingData)
+                self.processBufferedData()
+            }
         }
     }
     
-    public func rfcommChannelData(_ rfcommChannel: IOBluetoothRFCOMMChannel!, data dataPointer: UnsafeMutableRawPointer!, length dataLength: Int) {
-        let incomingData = Data(bytes: dataPointer, count: dataLength)
-        self.dataBuffer.append(incomingData)
-        
-        // Tentar decodificar enquanto houver pacotes completos no buffer
+    /// Chamado pelo IOBluetooth quando o canal é fechado pelo dispositivo remoto.
+    nonisolated public func rfcommChannelClosed(_ rfcommChannel: IOBluetoothRFCOMMChannel!) {
+        print("O canal RFCOMM foi fechado pelo dispositivo remoto ou pelo sistema.")
+        DispatchQueue.main.async {
+            Task { @MainActor in
+                self.rfcommChannel = nil
+                self.isConnected = false
+                self.dataBuffer.removeAll()
+            }
+        }
+    }
+    
+    // MARK: - Processamento de Dados Recebidos
+    
+    private func processBufferedData() {
         while true {
             do {
                 let message = try SppMessage.decode(from: self.dataBuffer)
-                
-                // Se decodificou com sucesso, remover os bytes exatos do pacote na rede
                 self.dataBuffer.removeFirst(message.totalPacketSize)
-                
-                // Processar a mensagem
                 self.processReceivedMessage(message)
                 
             } catch SppMessageError.tooSmall {
-                // Buffer não tem dados suficientes ainda, esperar próximo pacote
                 break
             } catch SppMessageError.invalidSom {
-                print("Aviso: SOM inválido. Descartando 1 byte para tentar resincronizar...")
+                print("Aviso: SOM inválido. Descartando 1 byte para resincronizar...")
                 if !self.dataBuffer.isEmpty {
                     self.dataBuffer.removeFirst()
                 }
             } catch {
-                // Outro erro de validação (CRC, tamanho, etc). Descartamos o primeiro byte e tentamos resincronizar.
                 print("Aviso: Falha de validação (\(error)). Descartando 1 byte.")
                 if !self.dataBuffer.isEmpty {
                     self.dataBuffer.removeFirst()
@@ -332,14 +378,6 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
             }
         }
     }
-    
-    public func rfcommChannelClosed(_ rfcommChannel: IOBluetoothRFCOMMChannel!) {
-        print("O canal RFCOMM foi fechado pelo dispositivo remoto ou pelo sistema.")
-        self.isConnected = false
-        self.dataBuffer.removeAll()
-    }
-    
-    // MARK: - Processamento de Mensagens
     
     private func processReceivedMessage(_ message: SppMessage) {
         switch message.id {
@@ -354,7 +392,6 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
             
         case .extendedStatusUpdated:
             if message.payload.count >= 8 {
-                // No ExtendedStatusUpdate (Buds+ ou superior), L é payload[2], R é payload[3], Case é payload[7]
                 self.batteryLevelL = min(Int(message.payload[2] & 0x7F), 100)
                 self.batteryLevelR = min(Int(message.payload[3] & 0x7F), 100)
                 self.batteryLevelCase = min(Int(message.payload[7] & 0x7F), 100)
@@ -373,7 +410,6 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
             }
             
         default:
-            // break
             print("Mensagem recebida: \(message.id)")
         }
     }
