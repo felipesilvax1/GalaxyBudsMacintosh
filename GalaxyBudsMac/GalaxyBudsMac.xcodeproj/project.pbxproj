@@ -6,14 +6,52 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		BFAA00012FFCW1D100AABB01 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BFAA00002FFCW1D100AABB00 /* WidgetKit.framework */; };
+		BFAA00022FFCW1D100AABB02 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BFAA00032FFCW1D100AABB03 /* SwiftUI.framework */; };
+		BFAA00042FFCW1D100AABB04 /* BudsOnMacWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BFAA00052FFCW1D100AABB05 /* BudsOnMacWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BFAA00062FFCW1D100AABB06 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 073FBD842FFBED6C0080B05C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BFAA00102FFCW1D100AABB10;
+			remoteInfo = BudsOnMacWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BFAA00072FFCW1D100AABB07 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				BFAA00042FFCW1D100AABB04 /* BudsOnMacWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		073FBD8C2FFBED6C0080B05C /* GalaxyBudsMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GalaxyBudsMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BFAA00002FFCW1D100AABB00 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		BFAA00032FFCW1D100AABB03 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		BFAA00052FFCW1D100AABB05 /* BudsOnMacWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BudsOnMacWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		073FBD8E2FFBED6C0080B05C /* GalaxyBudsMac */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = GalaxyBudsMac;
+			sourceTree = "<group>";
+		};
+		BFAA00092FFCW1D100AABB09 /* BudsOnMacWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BudsOnMacWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,6 +64,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BFAA000A2FFCW1D100AABB0A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BFAA00022FFCW1D100AABB02 /* SwiftUI.framework in Frameworks */,
+				BFAA00012FFCW1D100AABB01 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -33,6 +80,8 @@
 			isa = PBXGroup;
 			children = (
 				073FBD8E2FFBED6C0080B05C /* GalaxyBudsMac */,
+				BFAA00092FFCW1D100AABB09 /* BudsOnMacWidget */,
+				BFAA000E2FFCW1D100AABB0E /* Frameworks */,
 				073FBD8D2FFBED6C0080B05C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +90,18 @@
 			isa = PBXGroup;
 			children = (
 				073FBD8C2FFBED6C0080B05C /* GalaxyBudsMac.app */,
+				BFAA00052FFCW1D100AABB05 /* BudsOnMacWidgetExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		BFAA000E2FFCW1D100AABB0E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				BFAA00002FFCW1D100AABB00 /* WidgetKit.framework */,
+				BFAA00032FFCW1D100AABB03 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -55,10 +114,12 @@
 				073FBD882FFBED6C0080B05C /* Sources */,
 				073FBD892FFBED6C0080B05C /* Frameworks */,
 				073FBD8A2FFBED6C0080B05C /* Resources */,
+				BFAA00072FFCW1D100AABB07 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				BFAA000F2FFCW1D100AABB0F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				073FBD8E2FFBED6C0080B05C /* GalaxyBudsMac */,
@@ -69,6 +130,26 @@
 			productName = GalaxyBudsMac;
 			productReference = 073FBD8C2FFBED6C0080B05C /* GalaxyBudsMac.app */;
 			productType = "com.apple.product-type.application";
+		};
+		BFAA00102FFCW1D100AABB10 /* BudsOnMacWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BFAA00112FFCW1D100AABB11 /* Build configuration list for PBXNativeTarget "BudsOnMacWidgetExtension" */;
+			buildPhases = (
+				BFAA000B2FFCW1D100AABB0B /* Sources */,
+				BFAA000A2FFCW1D100AABB0A /* Frameworks */,
+				BFAA000C2FFCW1D100AABB0C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BFAA00092FFCW1D100AABB09 /* BudsOnMacWidget */,
+			);
+			name = BudsOnMacWidgetExtension;
+			productName = BudsOnMacWidgetExtension;
+			productReference = BFAA00052FFCW1D100AABB05 /* BudsOnMacWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -83,6 +164,9 @@
 					073FBD8B2FFBED6C0080B05C = {
 						CreatedOnToolsVersion = 26.6;
 					};
+					BFAA00102FFCW1D100AABB10 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 				};
 			};
 			buildConfigurationList = 073FBD872FFBED6C0080B05C /* Build configuration list for PBXProject "GalaxyBudsMac" */;
@@ -91,6 +175,7 @@
 			knownRegions = (
 				en,
 				Base,
+				"pt-BR",
 			);
 			mainGroup = 073FBD832FFBED6C0080B05C;
 			minimizedProjectReferenceProxies = 1;
@@ -100,12 +185,20 @@
 			projectRoot = "";
 			targets = (
 				073FBD8B2FFBED6C0080B05C /* GalaxyBudsMac */,
+				BFAA00102FFCW1D100AABB10 /* BudsOnMacWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		073FBD8A2FFBED6C0080B05C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BFAA000C2FFCW1D100AABB0C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +215,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BFAA000B2FFCW1D100AABB0B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BFAA000F2FFCW1D100AABB0F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BFAA00102FFCW1D100AABB10 /* BudsOnMacWidgetExtension */;
+			targetProxy = BFAA00062FFCW1D100AABB06 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		073FBD952FFBED6D0080B05C /* Debug */ = {
@@ -337,6 +445,64 @@
 			};
 			name = Release;
 		};
+		BFAA00122FFCW1D100AABB12 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BudsOnMacWidget/BudsOnMacWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4JMG76H57H;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = BudsOnMacWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.miguellabs.GalaxyBudsMac.BudsOnMacWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BFAA00132FFCW1D100AABB13 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BudsOnMacWidget/BudsOnMacWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4JMG76H57H;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = BudsOnMacWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.miguellabs.GalaxyBudsMac.BudsOnMacWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -354,6 +520,15 @@
 			buildConfigurations = (
 				073FBD982FFBED6D0080B05C /* Debug */,
 				073FBD992FFBED6D0080B05C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BFAA00112FFCW1D100AABB11 /* Build configuration list for PBXNativeTarget "BudsOnMacWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BFAA00122FFCW1D100AABB12 /* Debug */,
+				BFAA00132FFCW1D100AABB13 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
