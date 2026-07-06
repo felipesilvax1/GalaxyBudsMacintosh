@@ -40,6 +40,8 @@ public class BluetoothManager: NSObject {
     public var batteryLevelR: Int = 0
     public var batteryLevelCase: Int = 0
     public var currentNoiseMode: String = "Off"
+    public var voiceDetectEnabled: Bool = false
+    public var voiceDetectTimeout: Int = 10 // 5, 10, ou 15 segundos
     
     // MARK: - Estado Interno de Bluetooth
     private var rfcommChannel: IOBluetoothRFCOMMChannel?
@@ -297,6 +299,37 @@ public class BluetoothManager: NSObject {
         let message = SppMessage(id: .noiseControls, type: .request, payload: Data([modeByte]))
         self.send(message: message)
     }
+    
+    // MARK: - Voice Detect (Detect Conversations)
+    
+    /// Ativa/desativa o Voice Detect.
+    /// Quando ativo, os fones mudam automaticamente para Ambient quando você começa a falar.
+    public func setVoiceDetect(enabled: Bool) {
+        guard isConnected else { return }
+        self.voiceDetectEnabled = enabled
+        let message = SppMessage(id: .setDetectConversations, type: .request, payload: Data([enabled ? 0x01 : 0x00]))
+        self.send(message: message)
+        print("Voice Detect: \(enabled ? "ATIVADO" : "DESATIVADO")")
+    }
+    
+    /// Define o timeout do Voice Detect (quanto tempo fica em Ambient após parar de falar).
+    /// Valores: 5, 10, ou 15 segundos.
+    public func setVoiceDetectTimeout(_ seconds: Int) {
+        guard isConnected else { return }
+        self.voiceDetectTimeout = seconds
+        
+        // Wire format: 0=5s, 1=10s, 2=15s
+        let wireValue: UInt8
+        switch seconds {
+        case 5: wireValue = 0
+        case 15: wireValue = 2
+        default: wireValue = 1 // 10s
+        }
+        
+        let message = SppMessage(id: .setDetectConversationsDuration, type: .request, payload: Data([wireValue]))
+        self.send(message: message)
+        print("Voice Detect timeout: \(seconds)s")
+    }
 }
 
 // MARK: - IOBluetoothDeviceAsyncCallbacks (SDP Query Delegate)
@@ -406,6 +439,17 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
                 self.batteryLevelCase = min(Int(message.payload[7] & 0x7F), 100)
                 print("Extended Status: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
             }
+            // Parse Voice Detect (bytes 26-27, como o C# original)
+            if message.payload.count >= 28 {
+                self.voiceDetectEnabled = message.payload[26] == 1
+                let durationByte = min(message.payload[27], 2) // Clamp como o C#
+                switch durationByte {
+                case 0: self.voiceDetectTimeout = 5
+                case 2: self.voiceDetectTimeout = 15
+                default: self.voiceDetectTimeout = 10
+                }
+                print("Voice Detect: \(self.voiceDetectEnabled ? "ON" : "OFF"), timeout: \(self.voiceDetectTimeout)s")
+            }
             
         case .ambientModeUpdated, .noiseControlsUpdate:
             if let modeByte = message.payload.first {
@@ -416,6 +460,11 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
                 default: self.currentNoiseMode = "Unknown"
                 }
                 print("Noise mode atualizado para: \(self.currentNoiseMode)")
+            }
+            
+        case .noiseReductionModeUpdate:
+            if let byte = message.payload.first {
+                print("ANC mode update: \(byte == 1 ? "enabled" : "disabled")")
             }
             
         default:

@@ -37,10 +37,16 @@ public enum MsgIds: UInt8 {
     case noiseControlsUpdate = 119
     /// Configurar modos de controle de ruído
     case noiseControls = 120
+    /// Ativar/desativar Voice Detect (Detect Conversations)
+    case setDetectConversations = 122
+    /// Definir duração do timeout do Voice Detect (5s/10s/15s)
+    case setDetectConversationsDuration = 123
     /// Configurar modo ambiente (em alguns modelos antigos)
     case setAmbientMode = 128
     /// Atualização de modo ambiente
     case ambientModeUpdated = 129
+    /// Notificação de mudança do modo ANC
+    case noiseReductionModeUpdate = 155
     
     // MARK: - Equalizador Básico
     /// Mudar o preset do equalizador

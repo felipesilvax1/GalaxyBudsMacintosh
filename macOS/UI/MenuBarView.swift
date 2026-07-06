@@ -57,6 +57,61 @@ struct MenuBarView: View {
             
             Divider()
             
+            // MARK: - Voice Detect
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Voice Detect")
+                            .font(.subheadline)
+                        Text("Switches to Ambient when you speak")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { bluetoothManager.voiceDetectEnabled },
+                        set: { bluetoothManager.setVoiceDetect(enabled: $0) }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.small)
+                }
+                
+                if bluetoothManager.voiceDetectEnabled {
+                    HStack(spacing: 8) {
+                        Text("Timeout")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        ForEach([5, 10, 15], id: \.self) { seconds in
+                            Button("\(seconds)s") {
+                                bluetoothManager.setVoiceDetectTimeout(seconds)
+                            }
+                            .buttonStyle(.plain)
+                            .font(.caption)
+                            .fontWeight(bluetoothManager.voiceDetectTimeout == seconds ? .bold : .regular)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                bluetoothManager.voiceDetectTimeout == seconds
+                                    ? Color.blue.opacity(0.2)
+                                    : Color.primary.opacity(0.05)
+                            )
+                            .foregroundColor(
+                                bluetoothManager.voiceDetectTimeout == seconds
+                                    ? .blue
+                                    : .primary
+                            )
+                            .clipShape(Capsule())
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: bluetoothManager.voiceDetectEnabled)
+            
+            Divider()
+            
             // MARK: - Sair
             Button("Quit Galaxy Buds") {
                 NSApplication.shared.terminate(nil)
