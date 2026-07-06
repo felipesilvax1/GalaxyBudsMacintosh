@@ -24,15 +24,38 @@ public class BluetoothManager: NSObject {
     // UUID padrão para a Serial Port Profile (SPP)
     private let sppServiceUUID = IOBluetoothSDPUUID(uuid16: 0x1101)
     
+    private var connectionNotification: IOBluetoothUserNotification?
+    
     public override init() {
         super.init()
+        
+        // Registrar para notificações automáticas de conexão quando a case for aberta
+        connectionNotification = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(deviceConnected(_:device:)))
         
         // Debug para listar dispositivos pareados na inicialização do manager
         if let devices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] {
             for device in devices {
-                print("Dispositivo pareado encontrado: \(device.name ?? "Desconhecido")")
+                if let name = device.name {
+                    print("Dispositivo pareado encontrado: \(name)")
+                } else {
+                    print("No name or address")
+                }
             }
         }
+    }
+    
+    // MARK: - Auto-detecção (Case Open)
+    @objc private func deviceConnected(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
+        if let name = device.name, name.localizedCaseInsensitiveContains("Buds") {
+            print("Galaxy Buds conectado nativamente: \(name). Tentando conectar RFCOMM...")
+            bluetoothQueue.async {
+                self.openRFCOMMChannel(device: device)
+            }
+        }
+    }
+    
+    deinit {
+        connectionNotification?.unregister()
     }
     
     // MARK: - Descoberta e Conexão
