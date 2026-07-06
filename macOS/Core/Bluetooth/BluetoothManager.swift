@@ -170,8 +170,9 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
             self.isConnected = true
             self.dataBuffer.removeAll() // Resetar buffer ao conectar
             
-            // Ao conectar, enviamos o handshake do MVP (Manager Info) para acordar o dispositivo e pedir status
-            let handshakeMsg = SppMessage(id: .managerInfo, type: .request, payload: Data())
+            // Ao conectar, enviamos o handshake do MVP (Manager Info) para acordar o dispositivo e pedir status.
+            // Payload: 1 (Magic), 1 (Tipo Samsung), 34 (Android SDK version simulada)
+            let handshakeMsg = SppMessage(id: .managerInfo, type: .request, payload: Data([1, 1, 34]))
             self.send(message: handshakeMsg)
             
         } else {
