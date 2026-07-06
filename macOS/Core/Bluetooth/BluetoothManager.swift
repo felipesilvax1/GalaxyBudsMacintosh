@@ -35,6 +35,9 @@ public class BluetoothManager: NSObject {
         return [sppNew, sppStd, sppLeg, sppAlt].compactMap { $0 }
     }
     
+    // Flag para SDP query (exatamente como o original Obj-C)
+    private var sdpQueryDone: Bool = false
+    
     private var connectionNotification: IOBluetoothUserNotification?
     
     public override init() {
@@ -60,8 +63,7 @@ public class BluetoothManager: NSObject {
         if let name = device.name, name.localizedCaseInsensitiveContains("Buds") {
             print("Galaxy Buds conectado nativamente: \(name). Tentando conectar RFCOMM...")
             self.deviceName = name
-            // Executamos no MainActor para garantir RunLoop
-            self.openRFCOMMChannel(device: device)
+            self.startConnectionOnBackgroundThread(device: device)
         }
     }
     
@@ -86,63 +88,149 @@ public class BluetoothManager: NSObject {
         
         self.deviceName = budsDevice.name ?? "Galaxy Buds"
         print("Encontrado: \(budsDevice.nameOrAddress ?? "Unknown"). Iniciando tentativa de conexão...")
-        self.openRFCOMMChannel(device: budsDevice)
+        self.startConnectionOnBackgroundThread(device: budsDevice)
     }
     
-    private func openRFCOMMChannel(device: IOBluetoothDevice) {
-        Task {
-            // 1. Garantir que a conexão base esteja aberta antes de qualquer coisa
-            if !device.isConnected() {
-                let connStatus = device.openConnection()
-                if connStatus != kIOReturnSuccess && connStatus != kIOReturnTimeout {
-                    print("Erro ao tentar abrir a conexão base (openConnection): \(connStatus)")
-                }
-            }
-            
-            // 2. Fazer uma query SDP forçada (Workaround para macOS Ventura/Sonoma)
-            // Isso atualiza os registros cacheados no Mac, destravando o SPP em alguns casos.
-            device.performSDPQuery(nil)
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // Aguardar 1s sem travar a UI
-            
-            // 3. Buscar o serviço SPP
-            var targetRecord: IOBluetoothSDPServiceRecord? = nil
-            for uuid in self.sppUUIDs {
-                if let record = device.getServiceRecord(for: uuid) {
-                    targetRecord = record
-                    print("Serviço SPP encontrado pós-query com UUID: \(uuid)")
-                    break
-                }
-            }
-            
-            if targetRecord == nil {
-                print("Nenhum serviço SPP conhecido encontrado no dispositivo.")
+    /// Inicia a conexão Bluetooth em uma thread de background.
+    /// CRUCIAL: As APIs bloqueantes do IOBluetooth (openConnection, performSDPQuery, openRFCOMMChannelSync)
+    /// precisam que o RunLoop da MainThread esteja LIVRE para processar os eventos.
+    /// Se chamadas na MainThread diretamente, causam deadlock silencioso.
+    private func startConnectionOnBackgroundThread(device: IOBluetoothDevice) {
+        // Capturar os UUIDs antes de ir para background (computed property @MainActor)
+        let uuids = self.sppUUIDs
+        
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.performConnectionSync(device: device, uuids: uuids)
+        }
+    }
+    
+    /// Executa toda a sequência de conexão de forma síncrona numa thread de background.
+    /// Replica exatamente o fluxo do Bluetooth.mm original do GalaxyBudsClient.
+    nonisolated private func performConnectionSync(device: IOBluetoothDevice, uuids: [IOBluetoothSDPUUID]) {
+        
+        // === PASSO 1: Abrir conexão base ===
+        // "Before we can open the RFCOMM channel, we need to open a connection to the device."
+        if !device.isConnected() {
+            let status = device.openConnection()
+            if status == kIOReturnTimeout {
+                print("Erro: Timeout ao abrir conexão base com o dispositivo.")
                 return
             }
-            
-            var channelID: BluetoothRFCOMMChannelID = 0
-            if targetRecord!.getRFCOMMChannelID(&channelID) == kIOReturnSuccess {
-                print("Canal RFCOMM ID: \(channelID)")
-                
-                // 4. Abrir canal Sync (Workaround)
-                var tempChannel: IOBluetoothRFCOMMChannel? = nil
-                let status = device.openRFCOMMChannelSync(&tempChannel, withChannelID: channelID, delegate: self)
-                
-                var waitCount = 0
-                while (tempChannel == nil || tempChannel?.isOpen() == false) && waitCount < 15 {
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-                    waitCount += 1
+            if status != kIOReturnSuccess {
+                print("Erro ao abrir conexão base: \(status)")
+                // Não falhar fatalmente, tentar continuar
+            }
+        }
+        
+        // === PASSO 2: SDP Query com polling (como o original Obj-C) ===
+        // "sdp query with uuids specified silently fails since Ventura"
+        DispatchQueue.main.sync {
+            MainActor.assumeIsolated {
+                self.sdpQueryDone = false
+            }
+        }
+        
+        let sdpStatus = device.performSDPQuery(self)
+        if sdpStatus != kIOReturnSuccess {
+            print("Erro ao iniciar SDP query: \(sdpStatus). Tentando continuar sem SDP...")
+        } else {
+            // Poll até SDP completar, exatamente como o original
+            var i = 0
+            var done = false
+            while !done && i < 15 {
+                Thread.sleep(forTimeInterval: 0.1)
+                i += 1
+                DispatchQueue.main.sync {
+                    MainActor.assumeIsolated {
+                        done = self.sdpQueryDone
+                    }
                 }
-                
-                if tempChannel?.isOpen() == true {
-                    print("Canal RFCOMM está OPEN após \(waitCount * 100)ms (Status original: \(status))")
-                    self.rfcommChannel = tempChannel
-                    self.rfcommChannelOpenComplete(tempChannel, status: kIOReturnSuccess)
-                } else {
-                    print("Falha ao abrir o canal RFCOMM async/sync após 1.5s. Status original: \(status)")
+            }
+            if !done {
+                print("Aviso: SDP query expirou (timeout).")
+            }
+        }
+        
+        // === PASSO 3: Buscar serviço SPP ===
+        var targetRecord: IOBluetoothSDPServiceRecord? = nil
+        for uuid in uuids {
+            if let record = device.getServiceRecord(for: uuid) {
+                targetRecord = record
+                print("Serviço SPP encontrado com UUID: \(uuid)")
+                break
+            }
+        }
+        
+        guard let serviceRecord = targetRecord else {
+            print("Nenhum serviço SPP encontrado no dispositivo. ***Isso não deveria acontecer.***")
+            return
+        }
+        
+        // === PASSO 4: Obter canal RFCOMM ID ===
+        var channelID: BluetoothRFCOMMChannelID = 0
+        let cidStatus = serviceRecord.getRFCOMMChannelID(&channelID)
+        if cidStatus != kIOReturnSuccess {
+            print("Erro ao obter RFCOMM Channel ID: \(cidStatus)")
+            return
+        }
+        
+        print("Serviço selecionado - Canal RFCOMM ID = \(channelID)")
+        
+        // === PASSO 5: Abrir canal RFCOMM Sync ===
+        // "As it appears to be a macOS bug, we work it around by using openRFCOMMChannelSync
+        // then relying on RFCOMM channel to open after at most 1.5s"
+        var tempChannel: IOBluetoothRFCOMMChannel? = nil
+        let rfcommStatus = device.openRFCOMMChannelSync(&tempChannel, withChannelID: channelID, delegate: self)
+        
+        if tempChannel == nil {
+            print("Erro: canal RFCOMM é nil após openRFCOMMChannelSync. Status: \(rfcommStatus)")
+            return
+        }
+        
+        // Poll até o canal abrir (máx 1.5s), como o original
+        var waitCount = 0
+        while !tempChannel!.isOpen() && waitCount < 15 {
+            Thread.sleep(forTimeInterval: 0.1)
+            waitCount += 1
+        }
+        
+        // Verificar resultado - ignorar status de erro se o canal está aberto
+        // "For unknown reasons, status is always kIOReturnError even if connection was successful"
+        if !tempChannel!.isOpen() {
+            print("Erro: canal RFCOMM não abriu após 1.5s. Status original: \(rfcommStatus)")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
                     self.isConnected = false
                 }
-            } else {
-                print("Falha ao obter o ID de canal RFCOMM a partir do SDP.")
+            }
+            return
+        }
+        
+        if rfcommStatus != kIOReturnSuccess {
+            print("Aviso: openRFCOMMChannelSync retornou erro \(rfcommStatus), mas o canal está aberto!")
+        }
+        
+        print("Canal RFCOMM aberto com sucesso após \(waitCount * 100)ms!")
+        
+        // Atualizar estado na MainThread
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                self.rfcommChannel = tempChannel
+                self.rfcommChannelOpenComplete(tempChannel, status: kIOReturnSuccess)
+            }
+        }
+    }
+    
+    // MARK: - SDP Query Delegate Callback
+    @objc nonisolated public func sdpQueryComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
+        if status != kIOReturnSuccess {
+            print("Erro na SDP query: \(status)")
+        } else {
+            print("SDP query completou com sucesso!")
+        }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                self.sdpQueryDone = true
             }
         }
     }
