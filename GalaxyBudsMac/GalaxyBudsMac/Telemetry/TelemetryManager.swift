@@ -3,6 +3,7 @@ import MetricKit
 
 /// Gerenciador de telemetria focado estritamente no ecossistema nativo da Apple via MetricKit.
 /// Evita o uso de Sentry ou envio de relatórios de uso da máquina do usuário para servidores de terceiros.
+@MainActor
 class TelemetryManager: NSObject, MXMetricManagerSubscriber {
     static let shared = TelemetryManager()
     
