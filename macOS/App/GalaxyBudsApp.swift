@@ -10,9 +10,9 @@ struct GalaxyBudsApp: App {
     }
     
     var body: some Scene {
-        MenuBarExtra("Galaxy Buds", systemImage: "earbuds") {
+        MenuBarExtra("Buds On Mac", systemImage: "earbuds") {
             MenuBarView(bluetoothManager: bluetoothManager)
         }
-        .menuBarExtraStyle(.window) // Garante que a view SwiftUI seja renderizada como um painel rico (Control Center style) e não uma lista de botões.
+        .menuBarExtraStyle(.window)
     }
 }

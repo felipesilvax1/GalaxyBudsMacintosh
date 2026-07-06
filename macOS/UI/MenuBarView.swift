@@ -25,9 +25,9 @@ struct MenuBarView: View {
             
             // MARK: - Bateria
             HStack(spacing: 20) {
-                BatteryIndicator(label: "L", level: bluetoothManager.batteryLevelL)
-                BatteryIndicator(label: "R", level: bluetoothManager.batteryLevelR)
-                BatteryIndicator(label: "Case", level: bluetoothManager.batteryLevelCase)
+                BatteryIndicator(label: String(localized: "battery.left"), level: bluetoothManager.batteryLevelL)
+                BatteryIndicator(label: String(localized: "battery.right"), level: bluetoothManager.batteryLevelR)
+                BatteryIndicator(label: String(localized: "battery.case"), level: bluetoothManager.batteryLevelCase)
             }
             .padding(.vertical, 8)
             
@@ -35,20 +35,20 @@ struct MenuBarView: View {
             
             // MARK: - Noise Control
             VStack(alignment: .leading, spacing: 10) {
-                Text("Noise Control")
+                Text("noise.title")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 
                 HStack {
-                    NoiseButton(title: "ANC", icon: "waveform.path", isSelected: bluetoothManager.currentNoiseMode == "ANC") {
+                    NoiseButton(title: String(localized: "noise.anc"), icon: "waveform.path", isSelected: bluetoothManager.currentNoiseMode == "ANC") {
                         bluetoothManager.currentNoiseMode = "ANC"
                         bluetoothManager.setNoiseControlMode("ANC")
                     }
-                    NoiseButton(title: "Off", icon: "power", isSelected: bluetoothManager.currentNoiseMode == "Off") {
+                    NoiseButton(title: String(localized: "noise.off"), icon: "power", isSelected: bluetoothManager.currentNoiseMode == "Off") {
                         bluetoothManager.currentNoiseMode = "Off"
                         bluetoothManager.setNoiseControlMode("Off")
                     }
-                    NoiseButton(title: "Ambient", icon: "ear", isSelected: bluetoothManager.currentNoiseMode == "Ambient") {
+                    NoiseButton(title: String(localized: "noise.ambient"), icon: "ear", isSelected: bluetoothManager.currentNoiseMode == "Ambient") {
                         bluetoothManager.currentNoiseMode = "Ambient"
                         bluetoothManager.setNoiseControlMode("Ambient")
                     }
@@ -61,9 +61,9 @@ struct MenuBarView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Voice Detect")
+                        Text("voicedetect.title")
                             .font(.subheadline)
-                        Text("Switches to Ambient when you speak")
+                        Text("voicedetect.subtitle")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -79,7 +79,7 @@ struct MenuBarView: View {
                 
                 if bluetoothManager.voiceDetectEnabled {
                     HStack(spacing: 8) {
-                        Text("Timeout")
+                        Text("voicedetect.timeout")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
@@ -113,7 +113,7 @@ struct MenuBarView: View {
             Divider()
             
             // MARK: - Sair
-            Button("Quit Galaxy Buds") {
+            Button("action.quit") {
                 NSApplication.shared.terminate(nil)
             }
             .buttonStyle(.plain)
@@ -123,7 +123,6 @@ struct MenuBarView: View {
         }
         .padding()
         .frame(width: 320)
-        // Aplica o efeito ultraThinMaterial para o visual nativo Control Center
         .background(Material.ultraThinMaterial)
     }
 }

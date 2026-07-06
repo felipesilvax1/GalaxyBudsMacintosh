@@ -1,6 +1,7 @@
 import Foundation
 @preconcurrency import IOBluetooth
 import Observation
+import WidgetKit
 
 /// Semáforo thread-safe para garantir uma única conexão por vez.
 /// Replica o ConnSemaphore do C# original (SemaphoreSlim(1, 1)).
@@ -74,6 +75,14 @@ public class BluetoothManager: NSObject {
         // Registrar para notificações automáticas de conexão quando a case for aberta
         connectionNotification = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(deviceConnected(_:device:)))
         
+        // Escutar comandos vindos da Siri (via DistributedNotificationCenter)
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleSiriNoiseMode),
+            name: .init("tech.miguellabs.galaxybuds.setNoiseMode"),
+            object: nil
+        )
+        
         // Debug para listar dispositivos pareados
         if let devices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] {
             for device in devices {
@@ -84,6 +93,14 @@ public class BluetoothManager: NSObject {
                 }
             }
         }
+    }
+    
+    /// Chamado quando a Siri envia um comando de mudança de modo de ruído
+    @objc private func handleSiriNoiseMode(_ notification: Notification) {
+        guard let pendingMode = BudsData.pendingNoiseMode else { return }
+        print("Siri solicitou mudança de modo para: \(pendingMode)")
+        self.setNoiseControlMode(pendingMode)
+        BudsData.pendingNoiseMode = nil
     }
     
     // MARK: - Auto-detecção (Case Open)
@@ -262,6 +279,11 @@ public class BluetoothManager: NSObject {
         self.rfcommChannel = nil
         self.isConnected = false
         self.dataBuffer.removeAll()
+        
+        // Atualizar dados compartilhados (Widget mostrará "Disconnected")
+        BudsData.isConnected = false
+        WidgetCenter.shared.reloadTimelines(ofKind: "BudsOnMacWidget")
+        
         print("Desconectado.")
     }
     
@@ -438,6 +460,15 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
                 self.batteryLevelR = min(Int(message.payload[3] & 0x7F), 100)
                 self.batteryLevelCase = min(Int(message.payload[7] & 0x7F), 100)
                 print("Extended Status: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
+                
+                // Sincronizar com App Groups (Widget + Siri)
+                BudsData.syncBatteryData(
+                    left: self.batteryLevelL,
+                    right: self.batteryLevelR,
+                    caseLevel: self.batteryLevelCase,
+                    connected: true,
+                    deviceName: self.deviceName
+                )
             }
             // Parse Voice Detect (bytes 26-27, como o C# original)
             if message.payload.count >= 28 {
@@ -460,6 +491,7 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
                 default: self.currentNoiseMode = "Unknown"
                 }
                 print("Noise mode atualizado para: \(self.currentNoiseMode)")
+                BudsData.syncNoiseMode(self.currentNoiseMode)
             }
             
         case .noiseReductionModeUpdate:
