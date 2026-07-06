@@ -26,6 +26,13 @@ public class BluetoothManager: NSObject {
     
     public override init() {
         super.init()
+        
+        // Debug para listar dispositivos pareados na inicialização do manager
+        if let devices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] {
+            for device in devices {
+                print("Dispositivo pareado encontrado: \(device.name ?? "Desconhecido")")
+            }
+        }
     }
     
     // MARK: - Descoberta e Conexão
@@ -39,8 +46,13 @@ public class BluetoothManager: NSObject {
                 return
             }
             
-            // Filtrar usando "Buds" (cobre Galaxy Buds, Buds+, Buds Live, Buds Pro, Buds2, Buds2 Pro, Buds3, Buds3 Pro)
-            guard let budsDevice = pairedDevices.first(where: { ($0.nameOrAddress ?? "").contains("Buds") }) else {
+            // Filtrar usando "Buds" de forma insensível a maiúsculas/minúsculas (cobre Galaxy Buds, Buds+, Buds Live, Buds Pro, Buds2, Buds2 Pro, Buds3, Buds3 Pro)
+            guard let budsDevice = pairedDevices.first(where: { device in
+                if let name = device.name, name.localizedCaseInsensitiveContains("Buds") {
+                    return true
+                }
+                return false
+            }) else {
                 print("Nenhum Galaxy Buds encontrado nos dispositivos pareados.")
                 return
             }
