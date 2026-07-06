@@ -107,6 +107,12 @@ public struct SppMessage {
         let msgType: MsgTypes = (headerValue & 0x1000) != 0 ? .request : .response
         let expectedSize = Int(headerValue & 0x3FF)
         
+        // Verifica se o buffer já tem o pacote inteiro (SOM + Header + expectedSize + EOM)
+        let totalExpectedBytes = 1 + 2 + expectedSize + 1
+        guard raw.count >= totalExpectedBytes else {
+            throw SppMessageError.tooSmall
+        }
+        
         // 3. Message ID
         let rawId = raw[offset]
         offset += 1
