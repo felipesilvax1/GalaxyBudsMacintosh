@@ -47,6 +47,9 @@ public class BluetoothManager: NSObject {
     // MARK: - Estado Interno de Bluetooth
     private var rfcommChannel: IOBluetoothRFCOMMChannel?
     
+    // Publicador de bateria nativa — injeta dados no widget de bateria do macOS
+    private let nativeBatteryPublisher = NativeBatteryPublisher()
+    
     // Buffer para acumular dados de pacotes fragmentados
     private var dataBuffer = Data()
     
@@ -261,6 +264,9 @@ public class BluetoothManager: NSObject {
                 
                 print("Conexão RFCOMM estabelecida! Enviando handshake...")
                 
+                // Criar power sources nativos para o widget de bateria do macOS
+                self.nativeBatteryPublisher.createSources(deviceName: self.deviceName)
+                
                 // Handshake: Manager Info (idêntico ao original C#)
                 // Payload: [1 (Magic), 1 (ClientType Samsung), 34 (Android SDK)]
                 let handshakeMsg = SppMessage(id: .managerInfo, type: .request, payload: Data([1, 1, 34]))
@@ -279,6 +285,9 @@ public class BluetoothManager: NSObject {
         self.rfcommChannel = nil
         self.isConnected = false
         self.dataBuffer.removeAll()
+        
+        // Remover power sources nativos do widget de bateria do macOS
+        self.nativeBatteryPublisher.removeAllSources()
         
         // Atualizar dados compartilhados (Widget mostrará "Disconnected")
         BudsData.isConnected = false
@@ -452,6 +461,22 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
                 self.batteryLevelR = min(Int(message.payload[2] & 0x7F), 100)
                 self.batteryLevelCase = min(Int(message.payload[3] & 0x7F), 100)
                 print("Status Atualizado: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
+                
+                // Atualizar widget nativo de bateria do macOS
+                self.nativeBatteryPublisher.updateLevels(
+                    left: self.batteryLevelL,
+                    right: self.batteryLevelR,
+                    caseLevel: self.batteryLevelCase
+                )
+                
+                // Sincronizar com App Groups (Widget + Siri)
+                BudsData.syncBatteryData(
+                    left: self.batteryLevelL,
+                    right: self.batteryLevelR,
+                    caseLevel: self.batteryLevelCase,
+                    connected: true,
+                    deviceName: self.deviceName
+                )
             }
             
         case .extendedStatusUpdated:
@@ -460,6 +485,13 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
                 self.batteryLevelR = min(Int(message.payload[3] & 0x7F), 100)
                 self.batteryLevelCase = min(Int(message.payload[7] & 0x7F), 100)
                 print("Extended Status: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
+                
+                // Atualizar widget nativo de bateria do macOS
+                self.nativeBatteryPublisher.updateLevels(
+                    left: self.batteryLevelL,
+                    right: self.batteryLevelR,
+                    caseLevel: self.batteryLevelCase
+                )
                 
                 // Sincronizar com App Groups (Widget + Siri)
                 BudsData.syncBatteryData(

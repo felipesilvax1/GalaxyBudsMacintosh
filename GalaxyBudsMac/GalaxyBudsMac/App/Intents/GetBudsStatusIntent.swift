@@ -9,6 +9,7 @@ struct GetBudsStatusIntent: AppIntent {
     // Se o app não estiver rodando, abre ele pra garantir que os dados existam
     static var openAppWhenRun: Bool = false
     
+    @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard BudsData.isConnected else {
             return .result(dialog: "Your Galaxy Buds are not connected.")

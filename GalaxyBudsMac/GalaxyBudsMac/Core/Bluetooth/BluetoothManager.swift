@@ -9,13 +9,15 @@ import WidgetKit
 final class ConnectionSemaphore: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 1)
     
+    nonisolated init() {}
+    
     /// Tenta adquirir o semáforo. Retorna true se conseguiu.
-    func tryAcquire() -> Bool {
+    nonisolated func tryAcquire() -> Bool {
         return semaphore.wait(timeout: .now()) == .success
     }
     
     /// Libera o semáforo.
-    func release() {
+    nonisolated func release() {
         semaphore.signal()
     }
 }
@@ -65,7 +67,7 @@ public class BluetoothManager: NSObject {
     }
     
     // Semáforo de conexão — garante apenas UMA tentativa por vez (como o C# original)
-    private nonisolated(unsafe) let _connSemaphore = ConnectionSemaphore()
+    private let _connSemaphore = ConnectionSemaphore()
     
     private var connectionNotification: IOBluetoothUserNotification?
     
@@ -452,6 +454,15 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
                 self.batteryLevelR = min(Int(message.payload[2] & 0x7F), 100)
                 self.batteryLevelCase = min(Int(message.payload[3] & 0x7F), 100)
                 print("Status Atualizado: L \(self.batteryLevelL)% R \(self.batteryLevelR)% Case \(self.batteryLevelCase)%")
+                
+                // Sincronizar com App Groups (Widget + Siri)
+                BudsData.syncBatteryData(
+                    left: self.batteryLevelL,
+                    right: self.batteryLevelR,
+                    caseLevel: self.batteryLevelCase,
+                    connected: true,
+                    deviceName: self.deviceName
+                )
             }
             
         case .extendedStatusUpdated:

@@ -31,6 +31,7 @@ struct SetNoiseModeIntent: AppIntent {
         Summary("Set noise mode to \(\.$mode)")
     }
     
+    @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard BudsData.isConnected else {
             return .result(dialog: "Your Galaxy Buds are not connected.")

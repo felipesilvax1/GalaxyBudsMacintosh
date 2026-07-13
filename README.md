@@ -184,6 +184,14 @@ If you want to contribute your own code, you can simply submit a plain pull requ
 ### Assets
 * Earbud asset used in the Android icon created by [Archival](https://www.flaticon.com/authors/archival) from [Flaticon](https://www.flaticon.com/)
 
+## Disclaimer
+
+Buds Connect (formerly GalaxyBudsMac) is an **unofficial, independent, open-source project** and is **not affiliated with, endorsed by, or in any way officially connected with Samsung Electronics Co., Ltd.** All product names and trademarks are the property of their respective owners. This app communicates with Galaxy Buds hardware exclusively via the standard open Bluetooth SPP/RFCOMM protocol — no Samsung proprietary SDK or assets are used.
+
+This software is provided "AS IS" without warranty of any kind. Use at your own risk.
+
+For full details, see [DISCLAIMER.md](./DISCLAIMER.md).
+
 ## License
 
 This project is licensed under [GPLv3](https://github.com/timschneeb/GalaxyBudsClient/blob/master/LICENSE). It is not affiliated with Samsung nor supervised by them in any way.
