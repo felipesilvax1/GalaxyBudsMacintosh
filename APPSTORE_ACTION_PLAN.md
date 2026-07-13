@@ -6,92 +6,82 @@
 
 ---
 
-## Status das Rejeições
+## Status das Rejeições e Resolução
 
 | Guideline | Descrição | Status |
 |---|---|---|
-| **5.2.5** | Uso de marca "Mac" (propriedade da Apple) no nome do app | ✅ Corrigido automaticamente — renomear para "Buds Connect" |
-| **4.1(c)** | Nome do app muito genérico / sem diferenciação suficiente | ✅ Corrigido automaticamente — novo nome resolve |
-| **5.2.1** | Conteúdo Galaxy Buds sem autorização da Samsung | ⚠️ Requer resposta manual ao App Review |
-| **1.5** | Support URL quebrada (link antigo não funciona) | ⚠️ Requer atualização manual da URL no App Store Connect |
+| **5.2.5** | Uso de marca "Mac" (propriedade da Apple) no nome do app | ✅ Concluído (Renomeado para "Buds Connect" no projeto e App Store Connect) |
+| **4.1(c)** | Nome do app muito genérico / sem diferenciação suficiente | ✅ Concluído (Nome alterado para "Buds Connect") |
+| **5.2.1** | Conteúdo Galaxy Buds sem autorização da Samsung | ✅ Concluído (Apelação legal e disclaimer enviados via App Review) |
+| **1.5** | Support URL quebrada (link antigo não funciona) | ✅ Concluído (URLs de suporte e marketing limpas e apontando para o GitHub) |
 
 ---
 
-## Ações Manuais no App Store Connect
+## Ações Automatizadas e Executadas pelo Agente
 
 1. **Mudar o nome do app para "Buds Connect"**  
-   - Em App Store Connect → Meu App → Informações do App → Nome  
-   - Remover qualquer menção a "Mac" e "Galaxy" do nome público
+   - Concluído em App Store Connect → Informações do App.
+   - Renomeado localmente em `project.pbxproj` (`INFOPLIST_KEY_CFBundleDisplayName`).
 
-2. **Atualizar a Support URL**  
-   - Em App Store Connect → Meu App → Informações do App → Support URL  
-   - Novo valor: `https://github.com/felipesilvax1/GalaxyBudsMacintosh`  
-   - (A página de suporte detalhada está em `docs/support.md` neste repositório)
+2. **Atualizar a Support URL e Marketing URL**  
+   - Support URL atualizada para: `https://github.com/felipesilvax1/GalaxyBudsMacintosh/blob/master/docs/support.md`
+   - Marketing URL atualizada para: `https://github.com/felipesilvax1/GalaxyBudsMacintosh`
 
 3. **Responder ao App Review sobre o Guideline 5.2.1**  
-   - Em App Store Connect → Meu App → Atividade → App Review Information → Reply to App Review  
-   - Colar o texto completo do arquivo [`appstore_521_response.md`](./appstore_521_response.md)
+   - Apelação profissional com base nos disclaimers e open-source (RFCOMM/SPP) colada e submetida na Central de Resoluções.
 
-4. **Fazer novo build no Xcode**  
-   - Abrir o projeto no Xcode
-   - Incrementar o **Build Number** em Project → Target → General → Identity (ex: de `1` para `2`)
-   - Verificar que `CFBundleDisplayName` está como `Buds Connect` no `Info.plist`
-   - Confirmar que o **Bundle Identifier permanece inalterado**: `tech.miguellabs.GalaxyBudsMac`
-   - Ir em **Product → Archive** e aguardar a geração do archive
+4. **Gerar novo build**  
+   - Incrementado build number de `1` para `2`.
+   - Gerado o pacote `.pkg` assinado e enviado via pipeline Fastlane para o App Store Connect.
 
-5. **Enviar o novo build pelo Xcode Organizer**  
-   - Na janela do Organizer, selecionar o archive recém-criado
-   - Clicar em **Distribute App → App Store Connect → Upload**
-   - Aguardar o processamento (geralmente 10–30 minutos)
-
-6. **Selecionar o novo build no App Store Connect e reenviar para Review**  
-   - Em App Store Connect → Meu App → Versão macOS → Build  
-   - Selecionar o novo build enviado
-   - Clicar em **"Submit for Review"** (ou "Resubmit for Review")
+5. **Substituir o build e reenviar para revisão**  
+   - Build anterior `1.0 (1)` removido da submissão.
+   - Novo build `1.0 (2)` selecionado na versão do App.
+   - Questionário de exportação de criptografia respondido ("None of the algorithms...").
+   - App reenviado com sucesso para a Apple. O status atual do App Store Connect é **"Waiting for Review"** (Aguardando Revisão).
 
 ---
 
-## Checklist de Verificação Pré-Envio
+## Checklist de Verificação Realizado
 
 ### App Store Connect
-- [ ] Nome do app = **"Buds Connect"** (sem "Mac", sem "Galaxy")
-- [ ] Support URL = `https://github.com/felipesilvax1/GalaxyBudsMacintosh`
-- [ ] Resposta ao Guideline 5.2.1 postada no campo "Reply to App Review"
-- [ ] Novo build selecionado na versão de envio
+- [x] Nome do app = **"Buds Connect"** (sem "Mac", sem "Galaxy")
+- [x] Support URL = `https://github.com/felipesilvax1/GalaxyBudsMacintosh/blob/master/docs/support.md`
+- [x] Marketing URL = `https://github.com/felipesilvax1/GalaxyBudsMacintosh`
+- [x] Resposta ao Guideline 5.2.1 postada no campo "Reply to App Review"
+- [x] Novo build `1.0 (2)` selecionado e configurado (Export Compliance resolvido)
+- [x] Botão **"Resubmit to App Review"** clicado
 
 ### Xcode / Info.plist
-- [ ] `CFBundleDisplayName` = `Buds Connect`
-- [ ] `CFBundleName` = `BudsConnect` (sem espaços, usado internamente)
-- [ ] **Bundle Identifier NÃO alterado**: `tech.miguellabs.GalaxyBudsMac`
-- [ ] **Build Number incrementado** (ex: 1 → 2)
-- [ ] **Version Number** mantido ou atualizado conforme necessário
+- [x] `CFBundleDisplayName` = `Buds Connect`
+- [x] `CFBundleName` = `BudsConnect`
+- [x] **Bundle Identifier NÃO alterado**: `tech.miguellabs.GalaxyBudsMac`
+- [x] **Build Number incrementado** (de 1 para 2)
 
 ### Repositório GitHub
-- [ ] `DISCLAIMER.md` adicionado ao repositório
-- [ ] Seção `## Disclaimer` adicionada ao `README.md`
-- [ ] `docs/support.md` publicada e acessível no repositório
-- [ ] Commits feitos com `git push` para que a Support URL esteja ativa
+- [x] `DISCLAIMER.md` adicionado ao repositório
+- [x] Seção `## Disclaimer` adicionada ao `README.md`
+- [x] `docs/support.md` publicada e acessível no repositório
+- [x] Commits enviados via `git push` para a branch master do GitHub
 
 ---
 
 ## Timeline Esperada
 
-| Etapa | Tempo Estimado |
-|---|---|
-| Ações manuais no App Store Connect | 30–60 minutos |
-| Processamento do novo build | 10–30 minutos |
-| Revisão pela Apple após reenvio | **24–48 horas** |
-
-> **Nota:** Se a Apple responder com novas perguntas sobre o Guideline 5.2.1, forneça links diretos para o código-fonte no GitHub e para os arquivos `DISCLAIMER.md` e `appstore_521_response.md` como evidências adicionais.
+| Etapa | Status | Tempo Estimado / Real |
+|---|---|---|
+| Ações automáticas no App Store Connect | ✅ Executado | Concluído em minutos |
+| Compilação e Envio do Build 2 (Fastlane) | ✅ Executado | Concluído em minutos |
+| Revisão pela Apple após reenvio | ⏳ Pendente | **24–48 horas** |
 
 ---
 
-## Arquivos Criados Nesta Sprint
+## Arquivos Criados e Consolidados
 
 | Arquivo | Descrição |
 |---|---|
 | [`appstore_521_response.md`](./appstore_521_response.md) | Resposta profissional para o App Review (Guideline 5.2.1) |
 | [`DISCLAIMER.md`](./DISCLAIMER.md) | Disclaimer legal completo (non-affiliation, GPLv3, uso por conta e risco) |
-| [`README.md`](./README.md) | Atualizado — nova seção `## Disclaimer` adicionada |
-| [`docs/support.md`](./docs/support.md) | Página de suporte completa (Getting Started, Troubleshooting, FAQ, Contact) |
-| [`APPSTORE_ACTION_PLAN.md`](./APPSTORE_ACTION_PLAN.md) | Este arquivo — checklist e plano de ação |
+| [`README.md`](./README.md) | Atualizado com disclaimer legal |
+| [`docs/support.md`](./docs/support.md) | Página de suporte completa (FAQ, Troubleshooting, Contact) |
+| [`APPSTORE_ACTION_PLAN.md`](./APPSTORE_ACTION_PLAN.md) | Este checklist de controle |
