@@ -118,8 +118,8 @@ struct BudsOnMacWidget: Widget {
         StaticConfiguration(kind: kind, provider: BudsTimelineProvider()) { entry in
             BudsWidgetView(entry: entry)
         }
-        .configurationDisplayName("Galaxy Buds Battery")
-        .description("Shows battery levels for your Galaxy Buds.")
+        .configurationDisplayName("Buds Battery")
+        .description("Shows battery levels for your earbuds.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

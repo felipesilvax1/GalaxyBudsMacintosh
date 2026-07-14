@@ -321,13 +321,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Shows battery levels for your Galaxy Buds."
+            "value" : "Shows battery levels for your earbuds."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mostra os níveis de bateria dos seus Galaxy Buds."
+            "value" : "Mostra os níveis de bateria dos seus fones."
           }
         }
       }
@@ -338,13 +338,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Galaxy Buds Battery"
+            "value" : "Buds Battery"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bateria Galaxy Buds"
+            "value" : "Bateria dos Fones"
           }
         }
       }

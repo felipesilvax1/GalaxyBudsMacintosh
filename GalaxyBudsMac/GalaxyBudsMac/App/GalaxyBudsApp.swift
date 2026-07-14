@@ -10,7 +10,7 @@ struct GalaxyBudsApp: App {
     }
     
     var body: some Scene {
-        MenuBarExtra("Buds On Mac", systemImage: "earbuds") {
+        MenuBarExtra("Buds Connect", systemImage: "earbuds") {
             MenuBarView(bluetoothManager: bluetoothManager)
         }
         .menuBarExtraStyle(.window)
