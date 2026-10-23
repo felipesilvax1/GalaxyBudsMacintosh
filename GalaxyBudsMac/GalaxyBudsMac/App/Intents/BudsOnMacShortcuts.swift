@@ -28,5 +28,17 @@ struct BudsOnMacShortcuts: AppShortcutsProvider {
             shortTitle: "Set Noise Mode",
             systemImageName: "ear"
         )
+        
+        // Devolver o microfone ao Mac (tira os Buds do modo telefone)
+        AppShortcut(
+            intent: UseMacMicrophoneIntent(),
+            phrases: [
+                "Use Mac microphone in \(.applicationName)",
+                "Fix \(.applicationName) audio quality",
+                "Switch \(.applicationName) microphone to Mac"
+            ],
+            shortTitle: "Use Mac Mic",
+            systemImageName: "mic"
+        )
     }
 }

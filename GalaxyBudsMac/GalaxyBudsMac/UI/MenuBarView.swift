@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     var bluetoothManager: BluetoothManager
+    var audioInput: AudioInputManager
     
     var body: some View {
         VStack(spacing: 16) {
@@ -109,6 +110,75 @@ struct MenuBarView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: bluetoothManager.voiceDetectEnabled)
+            
+            Divider()
+            
+            // MARK: - Microfone (devolve o input ao Mac → Buds saem do modo telefone)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("audio.title")
+                            .font(.subheadline)
+                        HStack(spacing: 4) {
+                            if audioInput.isBudsMicActive {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                    .font(.caption2)
+                            }
+                            Text(audioInput.isBudsMicActive
+                                 ? String(localized: "audio.phoneQuality \(audioInput.currentInputName)")
+                                 : String(localized: "audio.current \(audioInput.currentInputName)"))
+                                .font(.caption2)
+                                .foregroundColor(audioInput.isBudsMicActive ? .orange : .secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                    Spacer()
+                    Button {
+                        audioInput.useMacMicrophone()
+                    } label: {
+                        Text("audio.useMac")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(audioInput.isBudsMicActive ? Color.blue : Color.primary.opacity(0.1))
+                            .foregroundColor(audioInput.isBudsMicActive ? .white : .primary)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!audioInput.macMicAvailable)
+                }
+                
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("audio.keepMac")
+                            .font(.caption)
+                        Text(audioInput.autoPaused ? "audio.autoPaused" : "audio.keepMac.subtitle")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { audioInput.autoKeepOnMac },
+                        set: { audioInput.autoKeepOnMac = $0 }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.small)
+                }
+                
+                // Escape para chamadas: usar o mic dos Buds temporariamente.
+                if audioInput.budsMicPresent && !audioInput.isBudsMicActive {
+                    Button("audio.useBuds") {
+                        audioInput.useBudsMicrophone()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                }
+            }
+            .onAppear { audioInput.refresh() }
             
             Divider()
             
